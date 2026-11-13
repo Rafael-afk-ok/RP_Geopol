@@ -1,0 +1,200 @@
+import type Database from "better-sqlite3";
+import { assertDomain } from "../domain/errors.js";
+import { inTransaction } from "../db/index.js";
+import { audit } from "./audit.js";
+import type { PermissionSystem } from "../domain/types.js";
+import { requireCountryOrNarratorPermission, requireNarratorPermission } from "./permissions.js";
+
+export interface ItemInput {
+  name: string;
+  category: "military" | "common" | "custom";
+  description: string;
+  properties: Record<string, unknown>;
+  productionCost: number;
+  annualMaintenance: number;
+  productionYears: number;
+  maxParallelOrders: number;
+  isFood: boolean;
+  globalTradeable: boolean;
+}
+
+export function defineItem(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  input: ItemInput,
+): number {
+  requireNarratorPermission(db, guildId, actorId, "inventory", "create");
+  assertDomain(input.name.trim().length >= 2 && input.name.length <= 80, "O nome do item deve ter entre 2 e 80 caracteres.");
+  assertDomain(input.productionCost >= 0 && input.annualMaintenance >= 0, "Custos não podem ser negativos.");
+  assertDomain(Number.isInteger(input.productionYears) && input.productionYears >= 0, "A duração deve ser um número inteiro de anos.");
+  assertDomain(Number.isInteger(input.maxParallelOrders) && input.maxParallelOrders > 0, "O limite de filas deve ser positivo.");
+  assertDomain(!input.isFood || input.category === "common", "Alimentos devem pertencer à categoria de bens comuns.");
+  const result = db.prepare(
+    `INSERT INTO items
+      (guild_id, name, category, description, properties_json, production_cost, annual_maintenance,
+       production_years, max_parallel_orders, is_food, global_tradeable, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+  ).run(
+    guildId,
+    input.name.trim(),
+    input.category,
+    input.description.trim(),
+    JSON.stringify(input.properties),
+    input.productionCost,
+    input.annualMaintenance,
+    input.productionYears,
+    input.maxParallelOrders,
+    input.isFood ? 1 : 0,
+    input.globalTradeable ? 1 : 0,
+    actorId,
+  );
+  const id = Number(result.lastInsertRowid);
+  audit(db, guildId, actorId, "define_item", "item", id, { name: input.name, category: input.category });
+  return id;
+}
+
+export function addItemRequirement(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  itemId: number,
+  materialItemId: number,
+  quantity: number,
+): void {
+  requireNarratorPermission(db, guildId, actorId, "production", "configure");
+  assertDomain(quantity > 0 && Number.isFinite(quantity), "A quantidade de material precisa ser maior que zero.");
+  const rows = db.prepare("SELECT id, guild_id FROM items WHERE id IN (?, ?)").all(itemId, materialItemId) as Array<{
+    id: number;
+    guild_id: string;
+  }>;
+  assertDomain(rows.length === 2 && rows.every((item) => item.guild_id === guildId), "Produto ou material não pertence a este servidor.");
+  assertDomain(itemId !== materialItemId, "Um produto não pode exigir a si mesmo como material.");
+  db.prepare(
+    `INSERT INTO item_requirements (item_id, material_item_id, quantity) VALUES (?, ?, ?)
+     ON CONFLICT (item_id, material_item_id) DO UPDATE SET quantity = excluded.quantity`,
+  ).run(itemId, materialItemId, quantity);
+  audit(db, guildId, actorId, "set_item_requirement", "item", itemId, { materialItemId, quantity });
+}
+
+export function adjustInventory(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  countryId: number,
+  itemId: number,
+  delta: number,
+  reason: string,
+): void {
+  requireNarratorPermission(db, guildId, actorId, "inventory", "edit");
+  assertDomain(Number.isFinite(delta) && delta !== 0, "A alteração de estoque precisa ser diferente de zero.");
+  inTransaction(db, () => {
+    const country = db.prepare("SELECT id FROM countries WHERE id = ? AND guild_id = ? AND status = 'active'").get(
+      countryId,
+      guildId,
+    );
+    const item = db.prepare("SELECT id FROM items WHERE id = ? AND guild_id = ?").get(itemId, guildId);
+    assertDomain(country && item, "País ou item não encontrado.");
+    const current = db.prepare(
+      "SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?",
+    ).get(countryId, itemId) as { quantity: number } | undefined;
+    const next = (current?.quantity ?? 0) + delta;
+    assertDomain(next >= -1e-9, "O estoque não pode ficar negativo.");
+    db.prepare(
+      `INSERT INTO country_inventory (country_id, item_id, quantity) VALUES (?, ?, ?)
+       ON CONFLICT (country_id, item_id) DO UPDATE SET quantity = excluded.quantity, updated_at = CURRENT_TIMESTAMP`,
+    ).run(countryId, itemId, Math.max(0, next));
+    audit(db, guildId, actorId, "adjust_inventory", "inventory", `${countryId}:${itemId}`, { delta, reason });
+  });
+}
+
+export function setCountryProduction(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  countryId: number,
+  itemId: number,
+  annualProduction: number,
+  annualConsumption: number,
+): void {
+  requireNarratorPermission(db, guildId, actorId, "production", "configure");
+  assertDomain(annualProduction >= 0 && annualConsumption >= 0, "Produção e consumo não podem ser negativos.");
+  const country = db.prepare("SELECT id FROM countries WHERE id = ? AND guild_id = ? AND status = 'active'").get(
+    countryId,
+    guildId,
+  );
+  const item = db.prepare("SELECT id FROM items WHERE id = ? AND guild_id = ?").get(itemId, guildId);
+  assertDomain(country && item, "País ou item não encontrado.");
+  db.prepare(
+    `INSERT INTO country_production (country_id, item_id, annual_production, annual_consumption)
+     VALUES (?, ?, ?, ?)
+     ON CONFLICT (country_id, item_id) DO UPDATE
+     SET annual_production = excluded.annual_production, annual_consumption = excluded.annual_consumption`,
+  ).run(countryId, itemId, annualProduction, annualConsumption);
+  audit(db, guildId, actorId, "configure_country_production", "production", `${countryId}:${itemId}`, {
+    annualProduction,
+    annualConsumption,
+  });
+}
+
+export function setGlobalStock(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  itemId: number,
+  quantity: number,
+  currentPrice: number,
+  minimumPrice: number,
+  maximumPrice: number,
+): void {
+  requireNarratorPermission(db, guildId, actorId, "market", "configure");
+  assertDomain(quantity >= 0 && currentPrice > 0 && minimumPrice > 0 && maximumPrice >= minimumPrice, "Estoque ou faixa de preços inválida.");
+  assertDomain(currentPrice >= minimumPrice && currentPrice <= maximumPrice, "O preço atual deve ficar dentro dos limites.");
+  const item = db.prepare("SELECT id FROM items WHERE id = ? AND guild_id = ? AND global_tradeable = 1").get(itemId, guildId);
+  assertDomain(item, "Item não configurado para o mercado global.");
+  db.prepare(
+    `INSERT INTO global_stock (guild_id, item_id, quantity, current_price, min_price, max_price)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT (guild_id, item_id) DO UPDATE SET quantity = excluded.quantity,
+       current_price = excluded.current_price, min_price = excluded.min_price, max_price = excluded.max_price`,
+  ).run(guildId, itemId, quantity, currentPrice, minimumPrice, maximumPrice);
+  audit(db, guildId, actorId, "configure_global_stock", "global_stock", `${guildId}:${itemId}`, {
+    quantity,
+    currentPrice,
+    minimumPrice,
+    maximumPrice,
+  });
+}
+
+export function changeInventory(
+  db: Database.Database,
+  countryId: number,
+  itemId: number,
+  delta: number,
+): void {
+  const current = db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(
+    countryId,
+    itemId,
+  ) as { quantity: number } | undefined;
+  const next = (current?.quantity ?? 0) + delta;
+  assertDomain(next >= -1e-9, "Estoque insuficiente.");
+  db.prepare(
+    `INSERT INTO country_inventory (country_id, item_id, quantity) VALUES (?, ?, ?)
+     ON CONFLICT (country_id, item_id) DO UPDATE SET quantity = excluded.quantity, updated_at = CURRENT_TIMESTAMP`,
+  ).run(countryId, itemId, Math.max(0, next));
+}
+
+export function listCountryInventory(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  countryId: number,
+): Array<{ id: number; name: string; category: string; quantity: number; unit: string }> {
+  requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "inventory" as PermissionSystem, "read");
+  return db.prepare(
+    `SELECT i.id, i.name, i.category, COALESCE(v.quantity, 0) AS quantity,
+      json_extract(i.properties_json, '$.unit') AS unit
+     FROM items i LEFT JOIN country_inventory v ON v.item_id = i.id AND v.country_id = ?
+     WHERE i.guild_id = ? ORDER BY i.category, i.name COLLATE NOCASE`,
+  ).all(countryId, guildId) as Array<{ id: number; name: string; category: string; quantity: number; unit: string }>;
+}

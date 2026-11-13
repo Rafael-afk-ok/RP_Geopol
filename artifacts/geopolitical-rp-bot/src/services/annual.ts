@@ -1,0 +1,473 @@
+import { randomUUID } from "node:crypto";
+import type Database from "better-sqlite3";
+import { assertDomain } from "../domain/errors.js";
+import { inTransaction } from "../db/index.js";
+import { audit } from "./audit.js";
+import { adjustBalance } from "./economy.js";
+import { requireNarratorPermission } from "./permissions.js";
+import { runIdempotently } from "./idempotency.js";
+
+interface AnnualSnapshot {
+  currentYear: number;
+  countries: Array<{ id: number; treasury: number; population: number; revolt_counter: number }>;
+  inventory: Array<{ country_id: number; item_id: number; quantity: number }>;
+  productionOrders: Array<{ id: string; remaining_years: number; status: string }>;
+  economyEntries: Array<{ id: number; active: number }>;
+  globalStock: Array<{ item_id: number; quantity: number; current_price: number }>;
+  playerOffers: Array<{ id: string; remaining_quantity: number; status: string }>;
+}
+
+function snapshotGuild(db: Database.Database, guildId: string): AnnualSnapshot {
+  const settings = db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = ?").get(guildId) as
+    | { current_year: number }
+    | undefined;
+  assertDomain(settings, "Servidor ainda não foi inicializado.");
+  return {
+    currentYear: settings.current_year,
+    countries: db.prepare(
+      `SELECT id, treasury, population, revolt_counter FROM countries
+       WHERE guild_id = ? AND status = 'active' ORDER BY id`,
+    ).all(guildId) as AnnualSnapshot["countries"],
+    inventory: db.prepare(
+      `SELECT v.country_id, v.item_id, v.quantity FROM country_inventory v
+       JOIN countries c ON c.id = v.country_id WHERE c.guild_id = ? ORDER BY v.country_id, v.item_id`,
+    ).all(guildId) as AnnualSnapshot["inventory"],
+    productionOrders: db.prepare(
+      `SELECT o.id, o.remaining_years, o.status FROM production_orders o
+       JOIN countries c ON c.id = o.country_id WHERE c.guild_id = ? ORDER BY o.id`,
+    ).all(guildId) as AnnualSnapshot["productionOrders"],
+    economyEntries: db.prepare(
+      `SELECT e.id, e.active FROM economy_entries e
+       JOIN countries c ON c.id = e.country_id WHERE c.guild_id = ? ORDER BY e.id`,
+    ).all(guildId) as AnnualSnapshot["economyEntries"],
+    globalStock: db.prepare(
+      "SELECT item_id, quantity, current_price FROM global_stock WHERE guild_id = ? ORDER BY item_id",
+    ).all(guildId) as AnnualSnapshot["globalStock"],
+    playerOffers: db.prepare(
+      "SELECT id, remaining_quantity, status FROM player_offers WHERE guild_id = ? ORDER BY id",
+    ).all(guildId) as AnnualSnapshot["playerOffers"],
+  };
+}
+
+function writeInventory(db: Database.Database, rows: AnnualSnapshot["inventory"]): void {
+  const insert = db.prepare(
+    `INSERT INTO country_inventory (country_id, item_id, quantity) VALUES (?, ?, ?)
+     ON CONFLICT (country_id, item_id) DO UPDATE SET quantity = excluded.quantity, updated_at = CURRENT_TIMESTAMP`,
+  );
+  for (const row of rows) insert.run(row.country_id, row.item_id, row.quantity);
+}
+
+function applyInflationPenalty(
+  baseIncome: number,
+  issuedAmount: number,
+  mode: "linear" | "exponential",
+  penaltyPercentPer1000: number,
+): number {
+  const exposure = Math.max(0, issuedAmount / 1000 * penaltyPercentPer1000 / 100);
+  const multiplier = mode === "linear" ? Math.max(0, 1 - exposure) : Math.exp(-exposure);
+  return baseIncome * multiplier;
+}
+
+export function processAnnualTurn(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  requestId?: string,
+): { runId: string; year: number; summary: Record<string, number> } {
+  if (requestId) {
+    return runIdempotently(db, guildId, requestId, "year.advance", () =>
+      processAnnualTurn(db, guildId, actorId),
+    );
+  }
+  requireNarratorPermission(db, guildId, actorId, "year", "advance");
+  return inTransaction(db, () => {
+    const settings = db.prepare("SELECT * FROM guild_settings WHERE guild_id = ?").get(guildId) as
+      | {
+          current_year: number;
+          inflation_rate_percent: number;
+          inflation_penalty_mode: "linear" | "exponential";
+          inflation_penalty_percent_per_1000: number;
+          food_shortage_severity: number;
+          revolt_normalization_per_year: number;
+          global_market_price_sensitivity: number;
+        }
+      | undefined;
+    assertDomain(settings, "Servidor ainda não foi inicializado.");
+    const year = settings.current_year + 1;
+    const duplicate = db.prepare(
+      "SELECT id FROM annual_runs WHERE guild_id = ? AND year = ? AND undone_at IS NULL",
+    ).get(guildId, year);
+    assertDomain(!duplicate, `O ano ${year} já foi processado.`, "DUPLICATE_ANNUAL_RUN");
+    const integrity = db.prepare(
+      `SELECT c.id FROM countries c
+       WHERE c.guild_id = ? AND c.status = 'active'
+         AND (c.treasury < -c.debt_limit - 1e-9 OR c.population < 0 OR c.revolt_counter < 0)
+       LIMIT 1`,
+    ).get(guildId);
+    assertDomain(!integrity, "A verificação de integridade encontrou dados nacionais inválidos.", "INTEGRITY_FAILURE");
+
+    const before = snapshotGuild(db, guildId);
+    const runId = randomUUID();
+    const summary = { countries: 0, revenue: 0, expenses: 0, completedOrders: 0, expiredOffers: 0, foodDeficit: 0 };
+    const countries = db.prepare(
+      `SELECT id, name, treasury, max_money, debt_limit, annual_income, population,
+        annual_population_growth, food_per_person, revolt_counter, inflation_issued
+       FROM countries WHERE guild_id = ? AND status = 'active' ORDER BY id`,
+    ).all(guildId) as Array<{
+      id: number;
+      name: string;
+      treasury: number;
+      max_money: number | null;
+      debt_limit: number;
+      annual_income: number;
+      population: number;
+      annual_population_growth: number;
+      food_per_person: number;
+      revolt_counter: number;
+      inflation_issued: number;
+    }>;
+    summary.countries = countries.length;
+
+    // Annual income, scheduled income/expenses, and maintenance.
+    for (const country of countries) {
+      const income = applyInflationPenalty(
+        country.annual_income,
+        country.inflation_issued,
+        settings.inflation_penalty_mode,
+        settings.inflation_penalty_percent_per_1000,
+      );
+      if (income > 0) {
+        adjustBalance(db, country.id, guildId, actorId, income, "annual_income", `Rendimento anual do ano ${year}`, null, runId, year);
+        summary.revenue += income;
+      }
+
+      const entries = db.prepare(
+        `SELECT id, direction, amount, description, recurrence FROM economy_entries
+         WHERE country_id = ? AND active = 1 AND due_year <= ? ORDER BY id`,
+      ).all(country.id, year) as Array<{
+        id: number;
+        direction: "income" | "expense";
+        amount: number;
+        description: string;
+        recurrence: "recurring" | "one_time";
+      }>;
+      for (const entry of entries) {
+        const amount = entry.direction === "income" ? entry.amount : -entry.amount;
+        adjustBalance(db, country.id, guildId, actorId, amount, `annual_${entry.direction}`, entry.description, null, runId, year);
+        if (amount > 0) summary.revenue += amount;
+        else summary.expenses += -amount;
+        if (entry.recurrence === "one_time") {
+          db.prepare("UPDATE economy_entries SET active = 0 WHERE id = ?").run(entry.id);
+        }
+      }
+
+      const maintenance = db.prepare(
+        `SELECT COALESCE(SUM(v.quantity * i.annual_maintenance), 0) AS total
+         FROM country_inventory v JOIN items i ON i.id = v.item_id
+         WHERE v.country_id = ?`,
+      ).get(country.id) as { total: number };
+      if (maintenance.total > 0) {
+        adjustBalance(db, country.id, guildId, actorId, -maintenance.total, "annual_maintenance", `Manutenção anual do ano ${year}`, null, runId, year);
+        summary.expenses += maintenance.total;
+      }
+    }
+
+    // Annual production and normal consumption. Food is consumed after population needs are calculated.
+    const productionRows = db.prepare(
+      `SELECT cp.country_id, cp.item_id, cp.annual_production, cp.annual_consumption, i.is_food
+       FROM country_production cp JOIN items i ON i.id = cp.item_id
+       JOIN countries c ON c.id = cp.country_id
+       WHERE c.guild_id = ? AND c.status = 'active' ORDER BY cp.country_id, cp.item_id`,
+    ).all(guildId) as Array<{
+      country_id: number;
+      item_id: number;
+      annual_production: number;
+      annual_consumption: number;
+      is_food: number;
+    }>;
+    const inventoryDelta = (countryId: number, itemId: number, delta: number): void => {
+      const current = db.prepare(
+        "SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?",
+      ).get(countryId, itemId) as { quantity: number } | undefined;
+      const quantity = Math.max(0, (current?.quantity ?? 0) + delta);
+      db.prepare(
+        `INSERT INTO country_inventory (country_id, item_id, quantity) VALUES (?, ?, ?)
+         ON CONFLICT (country_id, item_id) DO UPDATE
+         SET quantity = excluded.quantity, updated_at = CURRENT_TIMESTAMP`,
+      ).run(countryId, itemId, quantity);
+    };
+    for (const row of productionRows) {
+      if (row.annual_production > 0) inventoryDelta(row.country_id, row.item_id, row.annual_production);
+      if (!row.is_food && row.annual_consumption > 0) {
+        const current = db.prepare(
+          "SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?",
+        ).get(row.country_id, row.item_id) as { quantity: number } | undefined;
+        inventoryDelta(row.country_id, row.item_id, -Math.min(current?.quantity ?? 0, row.annual_consumption));
+      }
+    }
+
+    // Timed orders become operational only after the final year finishes.
+    const orders = db.prepare(
+      `SELECT o.id, o.country_id, o.item_id, o.quantity, o.remaining_years, i.name, i.annual_maintenance
+       FROM production_orders o JOIN items i ON i.id = o.item_id
+       JOIN countries c ON c.id = o.country_id
+       WHERE c.guild_id = ? AND o.status = 'in_progress' ORDER BY o.created_at, o.id`,
+    ).all(guildId) as Array<{
+      id: string;
+      country_id: number;
+      item_id: number;
+      quantity: number;
+      remaining_years: number;
+      name: string;
+      annual_maintenance: number;
+    }>;
+    for (const order of orders) {
+      if (order.remaining_years <= 1) {
+        inventoryDelta(order.country_id, order.item_id, order.quantity);
+        db.prepare("UPDATE production_orders SET remaining_years = 0, status = 'completed' WHERE id = ?").run(order.id);
+        summary.completedOrders += 1;
+        const firstMaintenance = order.quantity * order.annual_maintenance;
+        if (firstMaintenance > 0) {
+          adjustBalance(db, order.country_id, guildId, actorId, -firstMaintenance, "annual_maintenance", `Primeira manutenção de ${order.name}`, null, runId, year);
+          summary.expenses += firstMaintenance;
+        }
+      } else {
+        db.prepare("UPDATE production_orders SET remaining_years = remaining_years - 1 WHERE id = ?").run(order.id);
+      }
+    }
+
+    // Population growth and food use determine the annual revolt-counter change.
+    const foodItems = db.prepare(
+      "SELECT id FROM items WHERE guild_id = ? AND is_food = 1 ORDER BY id",
+    ).all(guildId) as Array<{ id: number }>;
+    for (const country of countries) {
+      const population = Math.max(0, Math.round(country.population * (1 + country.annual_population_growth / 100)));
+      db.prepare("UPDATE countries SET population = ? WHERE id = ?").run(population, country.id);
+      const requiredFood = population * country.food_per_person;
+      let remainingNeed = requiredFood;
+      for (const foodItem of foodItems) {
+        if (remainingNeed <= 0) break;
+        const stock = db.prepare(
+          "SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?",
+        ).get(country.id, foodItem.id) as { quantity: number } | undefined;
+        const consumed = Math.min(stock?.quantity ?? 0, remainingNeed);
+        if (consumed > 0) {
+          inventoryDelta(country.id, foodItem.id, -consumed);
+          remainingNeed -= consumed;
+        }
+      }
+      const shortage = Math.max(0, remainingNeed);
+      const deficitRatio = requiredFood > 0 ? shortage / requiredFood : 0;
+      summary.foodDeficit += shortage;
+      const nextRevolt = deficitRatio > 0
+        ? country.revolt_counter + deficitRatio * settings.food_shortage_severity
+        : Math.max(0, country.revolt_counter - settings.revolt_normalization_per_year);
+      db.prepare("UPDATE countries SET revolt_counter = ? WHERE id = ?").run(nextRevolt, country.id);
+    }
+
+    // Return unsold escrow when offers reach their configured expiry year.
+    const expired = db.prepare(
+      `SELECT id, seller_country_id, item_id, remaining_quantity FROM player_offers
+       WHERE guild_id = ? AND status = 'open' AND expires_year <= ? ORDER BY id`,
+    ).all(guildId, year) as Array<{ id: string; seller_country_id: number; item_id: number; remaining_quantity: number }>;
+    for (const offer of expired) {
+      if (offer.remaining_quantity > 0) {
+        inventoryDelta(offer.seller_country_id, offer.item_id, offer.remaining_quantity);
+      }
+      db.prepare("UPDATE player_offers SET remaining_quantity = 0, status = 'expired' WHERE id = ?").run(offer.id);
+      summary.expiredOffers += 1;
+    }
+
+    // Inflation is global; trade pressure adds demand/supply movement to each shared price.
+    const stockRows = db.prepare(
+      "SELECT item_id, quantity, current_price, min_price, max_price FROM global_stock WHERE guild_id = ? ORDER BY item_id",
+    ).all(guildId) as Array<{
+      item_id: number;
+      quantity: number;
+      current_price: number;
+      min_price: number;
+      max_price: number;
+    }>;
+    for (const stock of stockRows) {
+      const volume = db.prepare(
+        `SELECT
+           COALESCE(SUM(CASE WHEN direction = 'buy' THEN quantity ELSE 0 END), 0) AS bought,
+           COALESCE(SUM(CASE WHEN direction = 'sell' THEN quantity ELSE 0 END), 0) AS sold
+         FROM global_market_trades WHERE guild_id = ? AND item_id = ? AND year = ?`,
+      ).get(guildId, stock.item_id, settings.current_year) as { bought: number; sold: number };
+      const tradedVolume = volume.bought + volume.sold;
+      const denominator = Math.max(1, stock.quantity + tradedVolume);
+      const demandPressure = (volume.bought - volume.sold) / denominator * settings.global_market_price_sensitivity;
+      const inflationPressure = settings.inflation_rate_percent / 100;
+      const nextPrice = Math.min(
+        stock.max_price,
+        Math.max(stock.min_price, stock.current_price * (1 + inflationPressure + demandPressure)),
+      );
+      db.prepare("UPDATE global_stock SET current_price = ? WHERE guild_id = ? AND item_id = ?").run(
+        nextPrice,
+        guildId,
+        stock.item_id,
+      );
+      db.prepare(
+        `INSERT INTO global_price_history
+         (guild_id, item_id, year, previous_price, new_price, run_id) VALUES (?, ?, ?, ?, ?, ?)`,
+      ).run(guildId, stock.item_id, year, stock.current_price, nextPrice, runId);
+    }
+
+    db.prepare("UPDATE guild_settings SET current_year = ?, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ?").run(
+      year,
+      guildId,
+    );
+    const after = snapshotGuild(db, guildId);
+    db.prepare(
+      `INSERT INTO annual_runs
+       (id, guild_id, year, actor_id, before_snapshot_json, after_snapshot_json, summary_json)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    ).run(runId, guildId, year, actorId, JSON.stringify(before), JSON.stringify(after), JSON.stringify(summary));
+    audit(db, guildId, actorId, "process_annual_turn", "annual_run", runId, { year, summary });
+    return { runId, year, summary };
+  });
+}
+
+export function undoAnnualTurn(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  requestId?: string,
+): { runId: string; year: number } {
+  if (requestId) {
+    return runIdempotently(db, guildId, requestId, "year.undo", () =>
+      undoAnnualTurn(db, guildId, actorId),
+    );
+  }
+  requireNarratorPermission(db, guildId, actorId, "year", "undo");
+  return inTransaction(db, () => {
+    const settings = db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = ?").get(guildId) as
+      | { current_year: number }
+      | undefined;
+    assertDomain(settings && settings.current_year > 0, "Não há ano processado para desfazer.");
+    const run = db.prepare(
+      `SELECT id, year, before_snapshot_json, after_snapshot_json
+       FROM annual_runs WHERE guild_id = ? AND year = ? AND undone_at IS NULL`,
+    ).get(guildId, settings.current_year) as
+      | { id: string; year: number; before_snapshot_json: string; after_snapshot_json: string }
+      | undefined;
+    assertDomain(run, "Registro do último processamento anual não encontrado.");
+    const current = JSON.stringify(snapshotGuild(db, guildId));
+    assertDomain(
+      current === run.after_snapshot_json,
+      "O estado do jogo mudou após o avanço. Para evitar apagar alterações posteriores, o ano não pode ser desfeito agora.",
+      "STATE_CHANGED_AFTER_TURN",
+    );
+    const before = JSON.parse(run.before_snapshot_json) as AnnualSnapshot;
+
+    for (const country of before.countries) {
+      db.prepare("UPDATE countries SET treasury = ?, population = ?, revolt_counter = ? WHERE id = ?").run(
+        country.treasury,
+        country.population,
+        country.revolt_counter,
+        country.id,
+      );
+    }
+    const currentCountryIds = db.prepare("SELECT id FROM countries WHERE guild_id = ?").all(guildId) as Array<{ id: number }>;
+    const countryIds = currentCountryIds.map((country) => country.id);
+    if (countryIds.length > 0) {
+      const placeholders = countryIds.map(() => "?").join(",");
+      db.prepare(`DELETE FROM country_inventory WHERE country_id IN (${placeholders})`).run(...countryIds);
+      writeInventory(db, before.inventory);
+      const orderIds = db.prepare(
+        `SELECT o.id FROM production_orders o JOIN countries c ON c.id = o.country_id WHERE c.guild_id = ?`,
+      ).all(guildId) as Array<{ id: string }>;
+      for (const { id } of orderIds) {
+        const prior = before.productionOrders.find((order) => order.id === id);
+        if (prior) {
+          db.prepare("UPDATE production_orders SET remaining_years = ?, status = ? WHERE id = ?").run(
+            prior.remaining_years,
+            prior.status,
+            id,
+          );
+        }
+      }
+      const entries = db.prepare(
+        `SELECT e.id FROM economy_entries e JOIN countries c ON c.id = e.country_id WHERE c.guild_id = ?`,
+      ).all(guildId) as Array<{ id: number }>;
+      for (const { id } of entries) {
+        const prior = before.economyEntries.find((entry) => entry.id === id);
+        if (prior) db.prepare("UPDATE economy_entries SET active = ? WHERE id = ?").run(prior.active, id);
+      }
+    }
+    for (const stock of before.globalStock) {
+      db.prepare("UPDATE global_stock SET quantity = ?, current_price = ? WHERE guild_id = ? AND item_id = ?").run(
+        stock.quantity,
+        stock.current_price,
+        guildId,
+        stock.item_id,
+      );
+    }
+    for (const offer of before.playerOffers) {
+      db.prepare("UPDATE player_offers SET remaining_quantity = ?, status = ? WHERE id = ?").run(
+        offer.remaining_quantity,
+        offer.status,
+        offer.id,
+      );
+    }
+    db.prepare("UPDATE guild_settings SET current_year = ? WHERE guild_id = ?").run(before.currentYear, guildId);
+
+    const annualLedger = db.prepare("SELECT id, country_id, amount, kind FROM financial_ledger WHERE run_id = ?").all(run.id) as Array<{
+      id: string;
+      country_id: number;
+      amount: number;
+      kind: string;
+    }>;
+    const reverse = db.prepare(
+      `INSERT INTO financial_ledger
+       (id, guild_id, country_id, year, kind, amount, note, actor_id, transaction_group, reversal_of)
+       VALUES (?, ?, ?, ?, 'year_undo', ?, ?, ?, ?, ?)`,
+    );
+    for (const entry of annualLedger) {
+      reverse.run(
+        randomUUID(),
+        guildId,
+        entry.country_id,
+        run.year,
+        -entry.amount,
+        `Reversão do lançamento ${entry.kind} do ano ${run.year}`,
+        actorId,
+        run.id,
+        entry.id,
+      );
+    }
+    db.prepare("UPDATE global_price_history SET voided_at = CURRENT_TIMESTAMP WHERE run_id = ?").run(run.id);
+    db.prepare("UPDATE annual_runs SET undone_at = CURRENT_TIMESTAMP WHERE id = ?").run(run.id);
+    audit(db, guildId, actorId, "undo_annual_turn", "annual_run", run.id, {
+      year: run.year,
+      reversedLedgerEntries: annualLedger.length,
+    });
+    return { runId: run.id, year: run.year };
+  });
+}
+
+export function listAnnualRuns(
+  db: Database.Database,
+  guildId: string,
+  page = 1,
+): Array<{ id: string; year: number; summary_json: string; started_at: string; undone_at: string | null }> {
+  return db.prepare(
+    `SELECT id, year, summary_json, started_at, undone_at
+     FROM annual_runs WHERE guild_id = ? ORDER BY year DESC, started_at DESC LIMIT 10 OFFSET ?`,
+  ).all(guildId, (page - 1) * 10) as Array<{
+    id: string;
+    year: number;
+    summary_json: string;
+    started_at: string;
+    undone_at: string | null;
+  }>;
+}
+
+export function calculateIncomeFactor(
+  issuedAmount: number,
+  mode: "linear" | "exponential",
+  percentPer1000: number,
+): number {
+  return applyInflationPenalty(1, issuedAmount, mode, percentPer1000);
+}
