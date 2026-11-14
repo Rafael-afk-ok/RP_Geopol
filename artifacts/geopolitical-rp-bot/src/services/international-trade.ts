@@ -149,7 +149,7 @@ export function processAnnualTradeContracts(db:Database.Database,guildId:string,
         db.prepare("UPDATE trade_contracts SET remaining_years=?,status=?,last_result=? WHERE id=?")
           .run(left,left===0&&c.remaining_years>0?"completed":"active","Executado no ano "+year,c.id);
       });
-      result.applied++;result.tariffs+=tariffAmount;result.revenue+=base+tariffAmount;result.expenses+=total;
+      result.applied++;result.tariffs+=tariffAmount;result.revenue+=base;result.expenses+=total;
     } catch (error) {
       const reason=error instanceof Error?error.message:"Falha financeira ou de estoque";
       db.prepare("UPDATE trade_contracts SET last_result=? WHERE id=?").run(("Suspenso: "+reason).slice(0,180),c.id);
