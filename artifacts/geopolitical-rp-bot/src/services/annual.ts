@@ -361,7 +361,7 @@ export function processAnnualTurn(
       );
       const population = Math.max(0, projectedPopulation);
       db.prepare("UPDATE countries SET population = ? WHERE id = ?").run(population, country.id);
-      const rules = db.prepare("SELECT r.item_id, r.target, r.quantity_per_unit, i.is_food FROM country_consumption_rules r JOIN items i ON i.id = r.item_id WHERE r.country_id = ? ORDER BY r.target, r.item_id").all(country.id) as Array<{ item_id: number; target: "population" | "army"; quantity_per_unit: number; is_food: number }>;
+      const rules = db.prepare("SELECT r.item_id, r.target, r.quantity_per_unit, i.is_food FROM country_consumption_rules r JOIN items i ON i.id = r.item_id WHERE r.country_id = ? ORDER BY r.target, i.is_food DESC, r.item_id").all(country.id) as Array<{ item_id: number; target: "population" | "army"; quantity_per_unit: number; is_food: number }>;
       const populationRules = rules.filter((rule) => rule.target === "population");
       const armyRules = rules.filter((rule) => rule.target === "army");
       let populationNeed = 0, populationShortage = 0, armyNeed = 0, armyShortage = 0;

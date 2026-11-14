@@ -271,3 +271,22 @@ test("a country hitting its treasury ceiling does not abort the global annual cl
     assert.equal((db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = 'guild'").get() as { current_year: number }).current_year, 1);
   } finally { closeTestDatabase(db); }
 });
+
+
+test("annual close automatically buys missing non-food population resources", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { name: "Industrial", treasury: 0, population: 10, foodPerPerson: 0 });
+    const itemId = Number(db.prepare(
+      "INSERT INTO items (guild_id,name,category,global_tradeable,created_by) VALUES ('guild','Cloth','common',1,'narrator')",
+    ).run().lastInsertRowid);
+    db.prepare("INSERT INTO country_consumption_rules (country_id,item_id,target,quantity_per_unit,updated_by) VALUES (?,?, 'population',1,'narrator')").run(countryId,itemId);
+    db.prepare("INSERT INTO global_stock (guild_id,item_id,quantity,current_price,base_price,min_price,max_price,max_quantity) VALUES ('guild',?,10,2,2,1,10,10)").run(itemId);
+    const result = processAnnualTurn(db,"guild","narrator","auto-buy-non-food");
+    assert.equal(result.summary.populationShortage,0);
+    assert.equal((db.prepare("SELECT quantity FROM global_stock WHERE guild_id='guild' AND item_id=?").get(itemId) as {quantity:number}).quantity,0);
+    assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id=? AND item_id=?").get(countryId,itemId) as {quantity:number}).quantity,0);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(countryId) as {treasury:number}).treasury,100);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM global_market_trades WHERE run_id=? AND direction='buy'").get(result.runId) as {n:number}).n,1);
+  } finally { closeTestDatabase(db); }
+});
