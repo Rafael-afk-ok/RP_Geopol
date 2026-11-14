@@ -110,6 +110,15 @@ export const commandBuilders = [
     ),
 
   new SlashCommandBuilder()
+    .setName("configuracoes")
+    .setDescription("Consulta e altera preferências pessoais")
+    .addSubcommand((subcommand) =>
+      subcommand.setName("pessoais").setDescription("Consulta ou altera as preferências do país associado")
+        .addStringOption((option) => option.setName("pais").setDescription("País (opcional se houver apenas um associado)").setRequired(false).setMaxLength(80))
+        .addBooleanOption((option) => option.setName("inflacao_automatica").setDescription("Permitir financiamento inflacionário automático").setRequired(false)),
+    ),
+
+  new SlashCommandBuilder()
     .setName("economia")
     .setDescription("Configura rendimentos e movimentações econômicas")
     .addSubcommand((subcommand) =>
@@ -118,10 +127,6 @@ export const commandBuilders = [
         .addNumberOption((option) => option.setName("limite_divida").setDescription("Dívida máxima").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("renda_anual").setDescription("Rendimento base anual").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("limite_saldo").setDescription("Limite máximo; deixe vazio para ilimitado").setRequired(false).setMinValue(0)),
-    )
-    .addSubcommand((subcommand) =>
-      countryId(subcommand.setName("inflacao-automatica").setDescription("Ativa ou desativa o financiamento inflacionário automático do país"))
-        .addBooleanOption((option) => option.setName("habilitada").setDescription("Permitir emissão automática para compras de recursos").setRequired(true)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("inflar").setDescription("Emite dinheiro voluntariamente para o país")
