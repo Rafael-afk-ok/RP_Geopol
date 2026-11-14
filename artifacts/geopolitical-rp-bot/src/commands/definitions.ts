@@ -344,6 +344,12 @@ export const commandBuilders = [
     .addSubcommand((subcommand) => subcommand.setName("auditoria").setDescription("Lista alterações administrativas recentes")
       .addIntegerOption((option) => option.setName("pagina").setDescription("Página do histórico").setRequired(false).setMinValue(1))),
 
+  new SlashCommandBuilder().setName("narrador").setDescription("Nomeia ou remove narradores (Narrador Supremo)")
+    .addSubcommand((subcommand) => subcommand.setName("adicionar").setDescription("Nomeia um narrador")
+      .addUserOption((option) => option.setName("jogador").setDescription("Jogador que será narrador").setRequired(true)))
+    .addSubcommand((subcommand) => subcommand.setName("remover").setDescription("Remove um narrador")
+      .addUserOption((option) => option.setName("jogador").setDescription("Narrador a remover").setRequired(true))),
+
   new SlashCommandBuilder().setName("saldo").setDescription("Abre o painel financeiro do seu país")
     .addStringOption((option) => option.setName("pais").setDescription("País (necessário se você controla mais de um)").setRequired(false).setMaxLength(80)),
 
