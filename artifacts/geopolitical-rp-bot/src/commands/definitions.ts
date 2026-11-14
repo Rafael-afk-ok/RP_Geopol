@@ -191,6 +191,11 @@ export const commandBuilders = [
         .addNumberOption((option) => option.setName("quantidade").setDescription("Material por unidade produzida").setRequired(true).setMinValue(0.01)),
     )
     .addSubcommand((subcommand) =>
+      subcommand.setName("fabricacao").setDescription("Ativa ou desativa a fabricação de um item (narrador)")
+        .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
+        .addBooleanOption((option) => option.setName("habilitada").setDescription("Permitir fabricação").setRequired(true)),
+    )
+    .addSubcommand((subcommand) =>
       subcommand.setName("estoque-global").setDescription("Configura estoque e preço do mercado global")
         .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("estoque").setDescription("Quantidade global disponível").setRequired(true).setMinValue(0))
