@@ -325,7 +325,7 @@ export const commandBuilders = [
         { name: "População", value: "population" },
         { name: "Produção anual", value: "production" },
         { name: "Estoques", value: "stock" },
-        { name: "Crescimento econômico", value: "growth" },
+        { name: "Crescimento econômico estimado", value: "growth" },
       )),
 
   new SlashCommandBuilder().setName("ajuda").setDescription("Lista comandos e primeiros passos"),
