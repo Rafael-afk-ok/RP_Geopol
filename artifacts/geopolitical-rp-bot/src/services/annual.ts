@@ -253,7 +253,9 @@ export function processAnnualTurn(
         const current = db.prepare(
           "SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?",
         ).get(row.country_id, row.item_id) as { quantity: number } | undefined;
-        inventoryDelta(row.country_id, row.item_id, -Math.min(current?.quantity ?? 0, row.annual_consumption));
+        const assigned = db.prepare("SELECT assigned_soldiers FROM army_equipment_assignments WHERE country_id = ? AND item_id = ?").get(row.country_id, row.item_id) as { assigned_soldiers: number } | undefined;
+        const available = Math.max(0, (current?.quantity ?? 0) - (assigned?.assigned_soldiers ?? 0));
+        inventoryDelta(row.country_id, row.item_id, -Math.min(available, row.annual_consumption));
       }
     }
 
@@ -333,7 +335,8 @@ export function processAnnualTurn(
       let populationNeed = 0, populationShortage = 0, armyNeed = 0, armyShortage = 0;
       const consumeRule = (itemId: number, need: number): number => {
         const stock = db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(country.id, itemId) as { quantity: number } | undefined;
-        const available = stock?.quantity ?? 0;
+        const assigned = db.prepare("SELECT assigned_soldiers FROM army_equipment_assignments WHERE country_id = ? AND item_id = ?").get(country.id, itemId) as { assigned_soldiers: number } | undefined;
+        const available = Math.max(0, (stock?.quantity ?? 0) - (assigned?.assigned_soldiers ?? 0));
         const consumed = Math.min(available, need);
         if (consumed > 0) inventoryDelta(country.id, itemId, -consumed);
         return Math.max(0, need - consumed);
