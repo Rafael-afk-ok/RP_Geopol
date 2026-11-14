@@ -222,7 +222,7 @@ export const commandBuilders = [
     .addSubcommand((subcommand) =>
       subcommand.setName("ajustar").setDescription("Corrige o estoque de um país (narrador)")
         .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
-        .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("variacao").setDescription("Quantidade adicionada ou removida").setRequired(true))
         .addStringOption((option) => option.setName("motivo").setDescription("Motivo").setRequired(true).setMaxLength(200)),
     )
@@ -233,19 +233,19 @@ export const commandBuilders = [
     .addSubcommand((subcommand) =>
       subcommand.setName("producao-anual").setDescription("Define produção e consumo anual de um bem")
         .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
-        .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("produz").setDescription("Quantidade anual produzida").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("consome").setDescription("Quantidade anual consumida (exceto alimento)").setRequired(true).setMinValue(0)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("requisito").setDescription("Define material necessário para produzir um item")
-        .addIntegerOption((option) => option.setName("produto_id").setDescription("ID do produto").setRequired(true).setMinValue(1))
-        .addIntegerOption((option) => option.setName("material_id").setDescription("ID do material").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("produto").setDescription("Nome do produto").setRequired(true).setMaxLength(80))
+        .addStringOption((option) => option.setName("material").setDescription("Nome do material").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("quantidade").setDescription("Material por unidade produzida").setRequired(true).setMinValue(0.01)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("estoque-global").setDescription("Configura estoque e preço do mercado global")
-        .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("estoque").setDescription("Quantidade global disponível").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("preco").setDescription("Preço atual por unidade").setRequired(true).setMinValue(0.01))
         .addNumberOption((option) => option.setName("preco_minimo").setDescription("Preço mínimo").setRequired(true).setMinValue(0.01))
@@ -258,7 +258,7 @@ export const commandBuilders = [
     .addSubcommand((subcommand) =>
       subcommand.setName("iniciar").setDescription("Produz instantaneamente ou cria um pedido temporizado")
         .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
-        .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("quantidade").setDescription("Quantidade").setRequired(true).setMinValue(0.01)),
     )
     .addSubcommand((subcommand) =>
@@ -276,7 +276,7 @@ export const commandBuilders = [
     .addSubcommand((subcommand) =>
       subcommand.setName("ofertar").setDescription("Cria uma oferta de venda; o estoque fica reservado")
         .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
-        .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("quantidade").setDescription("Quantidade").setRequired(true).setMinValue(0.01))
         .addNumberOption((option) => option.setName("preco_unitario").setDescription("Preço por unidade").setRequired(true).setMinValue(0.01))
         .addStringOption((option) => option.setName("descricao").setDescription("Descrição opcional").setRequired(false).setMaxLength(200)),
@@ -301,13 +301,13 @@ export const commandBuilders = [
     .addSubcommand((subcommand) =>
       subcommand.setName("global-comprar").setDescription("Compra estoque do mercado global")
         .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
-        .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("quantidade").setDescription("Quantidade").setRequired(true).setMinValue(0.01)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("global-vender").setDescription("Vende estoque ao mercado global")
         .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
-        .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("quantidade").setDescription("Quantidade").setRequired(true).setMinValue(0.01)),
     ),
 
