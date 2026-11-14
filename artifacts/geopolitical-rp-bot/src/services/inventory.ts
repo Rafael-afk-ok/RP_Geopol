@@ -337,3 +337,19 @@ export function ensureDefaultCatalog(db: Database.Database, guildId: string, act
   });
 }
 
+
+
+export function setItemProductionEnabled(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  itemId: number,
+  enabled: boolean,
+): void {
+  requireNarratorPermission(db, guildId, actorId, "production", "configure");
+  const result = db.prepare(
+    "UPDATE items SET production_enabled = ? WHERE id = ? AND guild_id = ?",
+  ).run(enabled ? 1 : 0, itemId, guildId);
+  assertDomain(result.changes > 0, "Item não encontrado neste servidor.");
+  audit(db, guildId, actorId, "set_item_production_enabled", "item", itemId, { enabled });
+}
