@@ -84,3 +84,34 @@ export function listNarratedCountries(db: Database.Database, guildId: string, ac
   requireNarratorPermission(db, guildId, actorId, "countries", "read");
   return db.prepare("SELECT * FROM countries WHERE guild_id = ? ORDER BY name COLLATE NOCASE").all(guildId) as Country[];
 }
+
+
+/**
+ * Permanently removes a country and every country-scoped transaction or trade record.
+ * Server-wide annual snapshots and the audit trail are retained.
+ */
+export function deleteCountry(db: Database.Database, guildId: string, actorId: string, countryId: number): string {
+  requireNarratorPermission(db, guildId, actorId, "countries", "archive");
+  const remove = db.transaction(() => {
+    const country = db.prepare(
+      "SELECT id, name FROM countries WHERE id = ? AND guild_id = ?",
+    ).get(countryId, guildId) as { id: number; name: string } | undefined;
+    assertDomain(country, "País não encontrado.");
+
+    // Remove records without ON DELETE CASCADE before deleting the country.
+    db.prepare("DELETE FROM international_trade_history WHERE seller_country_id = ? OR buyer_country_id = ?").run(countryId, countryId);
+    db.prepare("DELETE FROM player_market_trades WHERE seller_country_id = ? OR buyer_country_id = ?").run(countryId, countryId);
+    db.prepare("DELETE FROM global_market_trades WHERE country_id = ?").run(countryId);
+    db.prepare("DELETE FROM financial_ledger WHERE country_id = ?").run(countryId);
+    db.prepare("DELETE FROM trade_contracts WHERE seller_country_id = ? OR buyer_country_id = ?").run(countryId, countryId);
+    db.prepare("DELETE FROM trade_restrictions WHERE imposing_country_id = ? OR target_country_id = ?").run(countryId, countryId);
+    db.prepare("DELETE FROM scheduled_transfers WHERE from_country_id = ? OR to_country_id = ?").run(countryId, countryId);
+    db.prepare("DELETE FROM player_offers WHERE seller_country_id = ?").run(countryId);
+
+    const result = db.prepare("DELETE FROM countries WHERE id = ? AND guild_id = ?").run(countryId, guildId);
+    assertDomain(result.changes === 1, "Não foi possível excluir o país.");
+    audit(db, guildId, actorId, "delete_country", "country", countryId, { name: country.name, permanent: true });
+    return country.name;
+  });
+  return remove.immediate();
+}

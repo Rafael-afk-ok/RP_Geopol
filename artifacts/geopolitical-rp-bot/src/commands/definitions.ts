@@ -63,7 +63,8 @@ export const commandBuilders = [
       countryId(subcommand.setName("arquivar").setDescription("Arquiva um país (narrador autorizado)")),
     )
     .addSubcommand((subcommand) =>
-      countryId(subcommand.setName("excluir").setDescription("Remove o país dos ativos, preservando histórico (narrador)")),
+      countryId(subcommand.setName("excluir").setDescription("EXCLUI DEFINITIVAMENTE o país e seus dados (irreversível)"))
+        .addBooleanOption((option) => option.setName("confirmar").setDescription("Confirma a exclusão permanente").setRequired(true)),
     )
     .addSubcommand((subcommand) =>
       countryId(subcommand.setName("geral").setDescription("Visão geral nacional com economia, população, exército, produção e rankings")),

@@ -12,7 +12,7 @@ import { assertDomain, DomainError } from "../domain/errors.js";
 import { audit } from "../services/audit.js";
 import { processAnnualTurn, undoAnnualTurn, listAnnualRuns } from "../services/annual.js";
 import { adjustBalance, configureCountryEconomy, configureInflation, issueInflation, repayInflation, roundCurrency, setAutomaticInflation, transferBetweenCountries } from "../services/economy.js";
-import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
+import { archiveCountry, createCountry, deleteCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
 import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock, setItemProductionEnabled } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
@@ -227,11 +227,18 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, `País **${interaction.options.getString("nome", true)}** criado. Jogadores com o cargo serão associados automaticamente ao usar o bot.`);
       return;
     }
-    if (subcommand === "arquivar" || subcommand === "excluir") {
+    if (subcommand === "arquivar") {
       const countryId = countryNumber(interaction, db);
       const countryName = getCountryForView(db, guildId, interaction.user.id, countryId).name;
       archiveCountry(db, guildId, interaction.user.id, countryId);
-      await reply(interaction, `País **${countryName}** removido dos países ativos. O histórico financeiro e anual foi preservado.`);
+      await reply(interaction, `País **${countryName}** arquivado. O histórico foi preservado.`);
+      return;
+    }
+    if (subcommand === "excluir") {
+      assertDomain(interaction.options.getBoolean("confirmar", true), "Exclusão cancelada. Defina confirmar como verdadeiro para excluir permanentemente.");
+      const countryId = countryNumber(interaction, db);
+      const countryName = deleteCountry(db, guildId, interaction.user.id, countryId);
+      await reply(interaction, `País **${countryName}** e seus dados específicos foram excluídos definitivamente. O nome e o cargo podem ser reutilizados. O registro de auditoria foi preservado.`);
       return;
     }
     if (subcommand === "geral") {
