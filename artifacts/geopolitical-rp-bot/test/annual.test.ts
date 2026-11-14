@@ -163,15 +163,15 @@ test("population tax uses the agreed declining per-capita factor", () => {
       { population: 250_000_000, monthly: 25_000_000 },
       { population: 300_000_000, monthly: 30_000_000 },
     ];
+    const ids = cases.map((entry, index) =>
+      insertCountry(db, { name: `Tax ${index}`, population: entry.population }),
+    );
+    processAnnualTurn(db, "guild", "narrator", "tax-brackets");
     for (const [index, entry] of cases.entries()) {
-      const countryId = insertCountry(db, { name: `Tax ${index}`, population: entry.population });
-      processAnnualTurn(db, "guild", "narrator", `tax-case-${index}`);
       const tax = (db.prepare(
         "SELECT COALESCE(SUM(amount), 0) AS total FROM financial_ledger WHERE country_id = ? AND kind = 'population_tax'",
-      ).get(countryId) as { total: number }).total;
+      ).get(ids[index]) as { total: number }).total;
       assert.equal(tax, entry.monthly * 12);
-      db.prepare("UPDATE guild_settings SET current_year = 0 WHERE guild_id = 'guild'").run();
-      db.prepare("UPDATE annual_runs SET undone_at = CURRENT_TIMESTAMP WHERE guild_id = 'guild'").run();
     }
   } finally {
     closeTestDatabase(db);
