@@ -830,7 +830,9 @@ const handlers: Record<string, Handler> = {
       const priceChanges = db.prepare(
         `SELECT i.name AS item, h.previous_price, h.new_price
          FROM global_price_history h JOIN items i ON i.id = h.item_id
-         WHERE h.run_id = ? AND h.voided_at IS NULL ORDER BY i.name COLLATE NOCASE`,
+         WHERE h.run_id = ? AND h.voided_at IS NULL
+           AND ABS(h.new_price - h.previous_price) > 0.000001
+         ORDER BY i.name COLLATE NOCASE`,
       ).all(result.runId) as Array<{ item: string; previous_price: number; new_price: number }>;
       const priceEmbed = new EmbedBuilder()
         .setTitle(`Mercado mundial · reajustes do ano ${result.year}`)
