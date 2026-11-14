@@ -46,20 +46,18 @@ test("transfers are atomic and duplicate interaction IDs do not debit twice", ()
   }
 });
 
-test("membership read access does not grant transfer or other write permissions", () => {
+test("country membership grants full control only within that country", () => {
   const db = createTestDatabase();
   try {
     const countryId = insertCountry(db);
     db.prepare(
-      "INSERT INTO country_memberships (country_id, user_id, permissions_json, created_by) VALUES (?, 'player', '{\"read\":true}', 'narrator')",
+      "INSERT INTO country_memberships (country_id, user_id, permissions_json, created_by) VALUES (?, 'player', '{\\"read\\":true}', 'narrator')",
     ).run(countryId);
-    assert.throws(
-      () => requireCountryPermission(db, "guild", countryId, "player", "economy", "transfer"),
-      /não tem permissão/,
-    );
-    db.prepare("UPDATE country_memberships SET permissions_json = ? WHERE country_id = ? AND user_id = 'player'")
-      .run(JSON.stringify({ read: true, "economy.transfer": true }), countryId);
     assert.doesNotThrow(() => requireCountryPermission(db, "guild", countryId, "player", "economy", "transfer"));
+    assert.throws(
+      () => requireCountryPermission(db, "guild", countryId, "outsider", "economy", "transfer"),
+      /não está associado/,
+    );
   } finally {
     closeTestDatabase(db);
   }
