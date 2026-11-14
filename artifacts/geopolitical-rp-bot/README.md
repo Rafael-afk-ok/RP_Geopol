@@ -31,7 +31,7 @@ O primeiro passo dentro do servidor é executar `/configurar principal`. Apenas 
 
 ## Banco de dados
 
-O banco SQLite é criado automaticamente em:
+O banco SQLite é criado automaticamente no diretório do pacote:
 
 ```text
 artifacts/geopolitical-rp-bot/data/game.sqlite

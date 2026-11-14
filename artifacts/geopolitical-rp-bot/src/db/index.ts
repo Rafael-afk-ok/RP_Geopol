@@ -3,7 +3,7 @@ import { dirname, resolve } from "node:path";
 import Database from "better-sqlite3";
 import { runMigrations } from "./migrate.js";
 
-export function openDatabase(path = process.env.DATABASE_PATH ?? "artifacts/geopolitical-rp-bot/data/game.sqlite"): Database.Database {
+export function openDatabase(path = process.env.DATABASE_PATH ?? "data/game.sqlite"): Database.Database {
   const absolutePath = path === ":memory:" ? path : resolve(path);
   if (path !== ":memory:") mkdirSync(dirname(absolutePath), { recursive: true });
   const db = new Database(absolutePath);

@@ -71,7 +71,7 @@ export const commandBuilders = [
 
   new SlashCommandBuilder()
     .setName("pais")
-    .setDescription("Cria e consulta países")
+    .setDescription("Cria, edita e consulta países")
     .addSubcommand((subcommand) =>
       subcommand.setName("criar").setDescription("Cria um país ligado a um cargo do Discord")
         .addStringOption((option) => option.setName("nome").setDescription("Nome do país").setRequired(true).setMaxLength(80))
@@ -82,6 +82,11 @@ export const commandBuilders = [
     )
     .addSubcommand((subcommand) =>
       countryId(subcommand.setName("ver").setDescription("Consulta os dados privados de um país")),
+    )
+    .addSubcommand((subcommand) =>
+      countryId(subcommand.setName("editar").setDescription("Edita o nome ou cargo associado do país"))
+        .addStringOption((option) => option.setName("nome").setDescription("Novo nome").setRequired(false).setMaxLength(80))
+        .addRoleOption((option) => option.setName("cargo").setDescription("Novo cargo associado").setRequired(false)),
     )
     .addSubcommand((subcommand) =>
       countryId(subcommand.setName("arquivar").setDescription("Arquiva um país (narrador autorizado)")),
@@ -306,7 +311,7 @@ export const commandBuilders = [
     .addSubcommand((subcommand) =>
       subcommand.setName("definir").setDescription("Define população, crescimento, necessidade alimentar e revolta")
         .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
-        .addNumberOption((option) => option.setName("populacao").setDescription("População").setRequired(true).setMinValue(0))
+        .addIntegerOption((option) => option.setName("populacao").setDescription("População").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("crescimento_percentual").setDescription("Crescimento anual em %").setRequired(true))
         .addNumberOption((option) => option.setName("alimento_por_pessoa").setDescription("Unidades de alimento por habitante").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("contador_revolta").setDescription("Contador de revolta").setRequired(true).setMinValue(0)),
@@ -336,15 +341,15 @@ export const commandBuilders = [
 ].map((builder) => builder.toJSON());
 
 export const narratorPermissions: Record<string, readonly string[]> = {
-  countries: ["create", "archive", "read"],
-  economy: ["configure", "edit", "read"],
+  countries: ["create", "edit", "archive", "read"],
+  economy: ["configure", "edit", "read", "transfer", "inflate"],
   inventory: ["create", "edit", "read"],
   production: ["configure", "start", "cancel", "read"],
   population: ["edit", "configure", "read"],
-  market: ["configure", "manage", "cancel", "read"],
+  market: ["configure", "manage", "cancel", "read", "buy", "sell"],
   players: ["manage", "read"],
   indicators: ["configure", "edit", "read"],
-  year: ["advance", "undo"],
+  year: ["advance", "undo", "read"],
   narrators: ["grant"],
 };
 

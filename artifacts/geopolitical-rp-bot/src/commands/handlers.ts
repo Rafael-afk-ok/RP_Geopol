@@ -8,7 +8,7 @@ import { assertDomain, DomainError } from "../domain/errors.js";
 import { audit } from "../services/audit.js";
 import { processAnnualTurn, undoAnnualTurn, listAnnualRuns } from "../services/annual.js";
 import { addEconomyEntry, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
-import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries } from "../services/countries.js";
+import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
 import { adjustInventory, addItemRequirement, defineItem, listCountryInventory, setCountryProduction, setGlobalStock } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
@@ -155,6 +155,15 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, `País ${countryId} arquivado.`);
       return;
     }
+    if (subcommand === "editar") {
+      const countryId = countryNumber(interaction);
+      updateCountry(db, guildId, interaction.user.id, countryId, {
+        name: interaction.options.getString("nome") ?? undefined,
+        roleId: interaction.options.getRole("cargo")?.id,
+      });
+      await reply(interaction, `País ${countryId} atualizado.`);
+      return;
+    }
     if (subcommand === "listar") {
       const countries = hasNarratorPermission(db, guildId, interaction.user.id, "countries", "read")
         ? listNarratedCountries(db, guildId, interaction.user.id)
@@ -201,7 +210,6 @@ const handlers: Record<string, Handler> = {
       associatePlayer(db, guildId, countryId, interaction.user.id, target.id);
       await reply(interaction, `<@${target.id}> foi associado ao país ${countryId}.`);
     } else {
-      requireNarratorPermission(db, guildId, interaction.user.id, "players", "manage");
       removePlayer(db, guildId, countryId, interaction.user.id, target.id);
       await reply(interaction, `<@${target.id}> foi removido do país ${countryId}.`);
     }
@@ -232,7 +240,7 @@ const handlers: Record<string, Handler> = {
     const system = interaction.options.getString("sistema", true) as Parameters<typeof setCountryPermission>[4];
     const action = interaction.options.getString("acao", true);
     const allowed = interaction.options.getBoolean("permitir", true);
-    setCountryPermission(db, countryId, interaction.user.id, target.id, system, action, allowed);
+    setCountryPermission(db, guildId, countryId, interaction.user.id, target.id, system, action, allowed);
     await reply(interaction, `Permissão **${system}/${action}** ${allowed ? "concedida" : "revogada"} para <@${target.id}> no país ${countryId}.`);
   },
 
@@ -603,7 +611,7 @@ const handlers: Record<string, Handler> = {
     const guildId = id(interaction);
     if (interaction.options.getSubcommand() === "definir") {
       configurePopulation(db, guildId, interaction.user.id, countryNumber(interaction), {
-        population: interaction.options.getNumber("populacao", true),
+        population: interaction.options.getInteger("populacao", true),
         annualGrowthPercent: interaction.options.getNumber("crescimento_percentual", true),
         foodPerPerson: interaction.options.getNumber("alimento_por_pessoa", true),
         revoltCounter: interaction.options.getNumber("contador_revolta", true),
