@@ -1,6 +1,5 @@
 import {
   EmbedBuilder,
-  MessageFlags,
   PermissionFlagsBits,
   type ChatInputCommandInteraction,
 } from "discord.js";
@@ -45,10 +44,9 @@ function userCountriesEmbed(title: string, rows: Array<{ id: number; name: strin
     .setColor(0x315e56);
 }
 
-async function reply(interaction: ChatInputCommandInteraction, content: string, ephemeral = true): Promise<void> {
-  await interaction.reply({
+async function reply(interaction: ChatInputCommandInteraction, content: string): Promise<void> {
+  await interaction.editReply({
     content: content.slice(0, 1900),
-    flags: ephemeral ? MessageFlags.Ephemeral : undefined,
     allowedMentions: { parse: [] },
   });
 }
@@ -175,9 +173,8 @@ const handlers: Record<string, Handler> = {
       const countries = hasNarratorPermission(db, guildId, interaction.user.id, "countries", "read")
         ? listNarratedCountries(db, guildId, interaction.user.id)
         : listAccessibleCountries(db, guildId, interaction.user.id);
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [userCountriesEmbed("Países acessíveis", countries)],
-        flags: MessageFlags.Ephemeral,
         allowedMentions: { parse: [] },
       });
       return;
@@ -199,16 +196,15 @@ const handlers: Record<string, Handler> = {
         { name: "Cargo associado", value: `<@&${country.role_id}>`, inline: true },
       )
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
   jogador: async (interaction, db) => {
     const guildId = id(interaction);
     const subcommand = interaction.options.getSubcommand();
     if (subcommand === "meus-paises") {
-      await interaction.reply({
+      await interaction.editReply({
         embeds: [userCountriesEmbed("Seus países", listAccessibleCountries(db, guildId, interaction.user.id))],
-        flags: MessageFlags.Ephemeral,
         allowedMentions: { parse: [] },
       });
       return;
@@ -321,7 +317,7 @@ const handlers: Record<string, Handler> = {
         ? rows.map((row) => `**${row.category} · ${row.name}** (${row.data_type})\n${String(row.value ?? "—")}${row.description ? `\n${row.description}` : ""}`).join("\n\n").slice(0, 4000)
         : "Nenhum indicador foi configurado.")
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
   economia: async (interaction, db) => {
@@ -475,7 +471,7 @@ const handlers: Record<string, Handler> = {
         ? rows.map((row) => `**${row.name}** · ${row.category}: ${formatNumber(row.quantity, 2)}${row.unit ? ` ${row.unit}` : ""} (ID ${row.id})`).join("\n").slice(0, 4000)
         : "Nenhum item configurado.")
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
   produzir: async (interaction, db) => {
@@ -508,7 +504,7 @@ const handlers: Record<string, Handler> = {
         ? rows.map((row) => `**${row.item}** × ${formatNumber(row.quantity, 2)} · ${row.status === "in_progress" ? `${row.remaining_years} ano(s) restante(s)` : row.status} · \`${row.id.slice(0, 8)}\``).join("\n").slice(0, 4000)
         : "Nenhum pedido de produção.")
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
   mercado: async (interaction, db) => {
@@ -573,7 +569,7 @@ const handlers: Record<string, Handler> = {
             : "Nenhum reajuste registrado." },
         )
         .setColor(0x315e56);
-      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+      await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
       return;
     }
     if (subcommand === "ofertar") {
@@ -639,7 +635,7 @@ const handlers: Record<string, Handler> = {
           : "Nenhum produto global configurado." },
       )
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
   populacao: async (interaction, db) => {
@@ -667,7 +663,7 @@ const handlers: Record<string, Handler> = {
       )
       .setFooter({ text: "Consequências de revoltas são decididas pelo narrador." })
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
   ano: async (interaction, db) => {
@@ -701,7 +697,7 @@ const handlers: Record<string, Handler> = {
           ? annualRows.map((row) => `**Ano ${row.year}** · ${row.undone_at ? "desfeito" : "processado"} · \`${row.id.slice(0, 8)}\`\n${Object.entries(JSON.parse(row.summary_json) as Record<string, number>).map(([key, value]) => `${key}: ${formatNumber(value, 2)}`).join(" · ")}`).join("\n\n").slice(0, 4000)
           : "Nenhum ano processado.")
         .setColor(0x315e56);
-      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+      await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
       return;
     }
     if (subcommand === "auditoria") {
@@ -717,7 +713,7 @@ const handlers: Record<string, Handler> = {
           ? rows.map((row) => `\`${row.created_at}\` · <@${row.actor_id}> · **${row.action}** · ${row.entity} ${row.entity_id}`).join("\n").slice(0, 4000)
           : "Nenhum evento de auditoria.")
         .setColor(0x315e56);
-      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+      await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
       return;
     }
     const countryId = countryNumber(interaction);
@@ -733,7 +729,7 @@ const handlers: Record<string, Handler> = {
         ? rows.map((row) => `Ano ${row.year} · ${row.amount >= 0 ? "+" : ""}${formatNumber(row.amount, 2)} · ${row.kind} · <@${row.actor_id}>\n${row.note}`).join("\n\n").slice(0, 4000)
         : "Nenhum lançamento financeiro.")
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
   ajuda: async (interaction) => {
@@ -748,7 +744,7 @@ const handlers: Record<string, Handler> = {
       )
       .setFooter({ text: "Desfazer um ano é bloqueado se o estado do jogo tiver mudado depois dele." })
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
   ping: async (interaction) => {
@@ -775,9 +771,9 @@ export async function handleCommand(interaction: ChatInputCommandInteraction, db
     if (interaction.deferred) {
       await interaction.editReply({ content: message, allowedMentions: { parse: [] } });
     } else if (interaction.replied) {
-      await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+      await interaction.followUp({ content: message, allowedMentions: { parse: [] } });
     } else {
-      await interaction.reply({ content: message, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
+      await interaction.editReply({ content: message, allowedMentions: { parse: [] } });
     }
   }
 }
