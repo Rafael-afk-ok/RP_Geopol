@@ -29,7 +29,7 @@ test("custom item categories, annual income, expenses, and maintenance are proce
       .run(countryId, itemId);
 
     const inventory = listCountryInventory(db, "guild", "narrator", countryId);
-    assert.equal(inventory[0]?.category, "Infrastructure");
+    assert.equal(inventory[0]?.category, "Indústria e bens");
 
     const result = processAnnualTurn(db, "guild", "narrator", "custom-item-year");
     assert.equal(result.summary.revenue, 30);
