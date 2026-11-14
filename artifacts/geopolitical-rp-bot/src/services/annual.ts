@@ -3,7 +3,7 @@ import type Database from "better-sqlite3";
 import { assertDomain, DomainError } from "../domain/errors.js";
 import { inTransaction } from "../db/index.js";
 import { audit } from "./audit.js";
-import { adjustBalance } from "./economy.js";
+import { adjustBalance, roundCurrency } from "./economy.js";
 import { requireNarratorPermission } from "./permissions.js";
 import { runIdempotently } from "./idempotency.js";
 import { processAnnualTradeContracts } from "./international-trade.js";
@@ -85,7 +85,7 @@ function tryAnnualBalance(
     adjustBalance(db, countryId, guildId, actorId, delta, kind, note, null, runId, year);
     return true;
   } catch (error) {
-    if (error instanceof DomainError && (error.code === "DEBT_LIMIT" || error.code === "MONEY_LIMIT")) return false;
+    if (error instanceof DomainError && (error.code === "DEBT_LIMIT" || error.code === "MONEY_LIMIT" || error.code === "AMOUNT_BELOW_PRECISION")) return false;
     throw error;
   }
 }
@@ -162,6 +162,7 @@ export function processAnnualTurn(
       army_size: number;
       military_readiness: number;
       inflation_issued: number;
+      automatic_inflation_enabled: number;
     }>;
     summary.countries = countries.length;
 
@@ -220,7 +221,7 @@ export function processAnnualTurn(
 
       const operatingFlows = db.prepare(
         `SELECT
-           COALESCE(SUM((CASE WHEN i.category = 'military' THEN COALESCE(a.assigned_soldiers, 0) WHEN i.category = 'custom' AND a.assigned_soldiers IS NOT NULL THEN a.assigned_soldiers ELSE v.quantity END) * i.annual_maintenance), 0) AS maintenance,
+           COALESCE(SUM((CASE WHEN i.category IN ('military', 'custom') THEN COALESCE(a.assigned_soldiers, 0) ELSE v.quantity END) * i.annual_maintenance), 0) AS maintenance,
            COALESCE(SUM(v.quantity * i.annual_income_per_unit), 0) AS income,
            COALESCE(SUM(v.quantity * i.annual_expense_per_unit), 0) AS expense
          FROM country_inventory v JOIN items i ON i.id = v.item_id
@@ -323,7 +324,7 @@ export function processAnnualTurn(
       const from = db.prepare("SELECT treasury, debt_limit FROM countries WHERE id = ? AND status = 'active'").get(transfer.from_country_id) as { treasury: number; debt_limit: number } | undefined;
       const to = db.prepare("SELECT id, treasury, max_money FROM countries WHERE id = ? AND status = 'active'").get(transfer.to_country_id) as { id: number; treasury: number; max_money: number | null } | undefined;
       let applied = false;
-      if (from && to && transfer.transfer_type === "money" && from.treasury - transfer.amount >= -from.debt_limit && (to.max_money === null || to.treasury + transfer.amount <= to.max_money)) {
+      if (from && to && transfer.transfer_type === "money" && roundCurrency(db, guildId, transfer.amount) > 0 && from.treasury - transfer.amount >= -from.debt_limit && (to.max_money === null || to.treasury + transfer.amount <= to.max_money)) {
         adjustBalance(db, transfer.from_country_id, guildId, actorId, -transfer.amount, "annual_transfer_out", transfer.description || "Acordo anual", null, runId, year);
         adjustBalance(db, transfer.to_country_id, guildId, actorId, transfer.amount, "annual_transfer_in", transfer.description || "Acordo anual", null, runId, year);
         applied = true;
@@ -378,10 +379,11 @@ export function processAnnualTurn(
           const purchaseQuantity = Math.min(shortage, world?.quantity ?? 0);
           if (purchaseQuantity > 0 && world) {
             const cost = purchaseQuantity * world.current_price;
-            const balance = db.prepare("SELECT treasury, inflation_issued FROM countries WHERE id = ?").get(country.id) as { treasury: number; inflation_issued: number };
+            const balance = db.prepare("SELECT treasury, inflation_issued, automatic_inflation_enabled FROM countries WHERE id = ?").get(country.id) as { treasury: number; inflation_issued: number; automatic_inflation_enabled: number };
             const cash = Math.max(0, balance.treasury);
             const inflationNeeded = Math.max(0, cost - cash);
             if (inflationNeeded > 0) {
+              if (balance.automatic_inflation_enabled !== 1 || settings.inflation_rate_percent <= 0) return shortage;
               if (!tryAnnualBalance(db, country.id, guildId, actorId, inflationNeeded, "automatic_resource_inflation", `Financiamento inflacionário de recursos no ano ${year}`, runId, year)) {
                 summary.blockedFinancialOperations += 1;
                 return shortage;
