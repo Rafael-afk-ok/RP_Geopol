@@ -541,6 +541,7 @@ const handlers: Record<string, Handler> = {
   },
 
   produzir: async (interaction, db) => {
+    const guildId = id(interaction);
     const subcommand = interaction.options.getSubcommand();
     if (subcommand === "iniciar") {
       const result = startProduction(
@@ -924,12 +925,13 @@ const handlers: Record<string, Handler> = {
   ajuda: async (interaction) => {
     const embed = new EmbedBuilder()
       .setTitle("Bot de RP Geopolítico")
-      .setDescription("Use `/configurar principal` como dono ou administrador do servidor para iniciar. Depois, configure a moeda, crie países e associe cargos do Discord. Países são privados; administradores podem delegar permissões por sistema e ação.")
+      .setDescription("Inicie com `/configurar principal`. Configure a moeda e crie cada país com seu cargo Discord. Quem possui o cargo é associado automaticamente; ao perder o cargo, perde o acesso automático. Jogadores controlam seus próprios países. O Narrador Supremo nomeia narradores com `/narrador adicionar`; narradores têm acesso administrativo completo.")
       .addFields(
-        { name: "Países e jogadores", value: "`/pais` · `/jogador` · `/permissao`" },
-        { name: "Economia e itens", value: "`/economia` · `/transferir` · `/inventario` · `/produzir`" },
+        { name: "Países", value: "`/pais criar` · `/pais listar` · `/pais ver` · `/jogador`" },
+        { name: "Finanças", value: "`/saldo` · `/gastar` · `/transferir` · `/rendimento adicionar` · `/dinheiro`" },
+        { name: "Inventário e produção", value: "`/inventario painel` · `/inventario criar-item` · `/inventario producao-anual` · `/produzir`" },
+        { name: "Rankings e turnos", value: "`/ranking` · `/ano avancar` · `/ano desfazer` · `/historico`" },
         { name: "Mercado e população", value: "`/mercado` · `/populacao` · `/indicador`" },
-        { name: "Turnos e registros", value: "`/ano avancar` · `/ano desfazer` · `/historico`" },
       )
       .setFooter({ text: "Desfazer um ano é bloqueado se o estado do jogo tiver mudado depois dele." })
       .setColor(0x315e56);
