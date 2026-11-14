@@ -3,37 +3,6 @@ import {
   SlashCommandSubcommandBuilder,
 } from "discord.js";
 
-const systems = [
-  { name: "Economia", value: "economy" },
-  { name: "Inventário", value: "inventory" },
-  { name: "Produção", value: "production" },
-  { name: "População", value: "population" },
-  { name: "Mercado", value: "market" },
-  { name: "Jogadores", value: "players" },
-  { name: "Indicadores", value: "indicators" },
-  { name: "Países", value: "countries" },
-  { name: "Avanço de ano", value: "year" },
-  { name: "Narradores", value: "narrators" },
-];
-
-const actions = [
-  { name: "Consultar", value: "read" },
-  { name: "Criar", value: "create" },
-  { name: "Editar", value: "edit" },
-  { name: "Configurar", value: "configure" },
-  { name: "Arquivar", value: "archive" },
-  { name: "Gerenciar", value: "manage" },
-  { name: "Iniciar", value: "start" },
-  { name: "Cancelar", value: "cancel" },
-  { name: "Comprar", value: "buy" },
-  { name: "Vender", value: "sell" },
-  { name: "Transferir", value: "transfer" },
-  { name: "Emitir dinheiro", value: "inflate" },
-  { name: "Avançar", value: "advance" },
-  { name: "Desfazer", value: "undo" },
-  { name: "Conceder", value: "grant" },
-];
-
 function countryId(subcommand: SlashCommandSubcommandBuilder, required = true): SlashCommandSubcommandBuilder {
   return subcommand.addStringOption((option) =>
     option.setName("pais").setDescription("Nome do país").setRequired(required).setMaxLength(80),
@@ -104,26 +73,6 @@ export const commandBuilders = [
         .addUserOption((option) => option.setName("jogador").setDescription("Jogador").setRequired(true)),
     )
     .addSubcommand((subcommand) => subcommand.setName("meus-paises").setDescription("Lista seus países associados")),
-
-  new SlashCommandBuilder()
-    .setName("permissao")
-    .setDescription("Gerencia permissões de narradores e jogadores")
-    .addSubcommand((subcommand) =>
-      subcommand.setName("narrador").setDescription("Concede ou revoga uma permissão de narrador")
-        .addUserOption((option) => option.setName("jogador").setDescription("Narrador subordinado").setRequired(true))
-        .addStringOption((option) => option.setName("sistema").setDescription("Sistema").setRequired(true).addChoices(...systems))
-        .addStringOption((option) => option.setName("acao").setDescription("Ação permitida").setRequired(true).addChoices(...actions))
-        .addBooleanOption((option) => option.setName("permitir").setDescription("Verdadeiro concede; falso revoga").setRequired(true)),
-    )
-    .addSubcommand((subcommand) =>
-      countryId(subcommand.setName("jogador").setDescription("Define uma permissão por país"))
-        .addUserOption((option) => option.setName("alvo").setDescription("Jogador associado").setRequired(true))
-        .addStringOption((option) => option.setName("sistema").setDescription("Sistema").setRequired(true)
-          .addChoices(...systems.filter(({ value }) => value !== "year" && value !== "narrators" && value !== "countries")))
-        .addStringOption((option) => option.setName("acao").setDescription("Ação permitida").setRequired(true)
-          .addChoices(...actions.filter(({ value }) => value !== "grant" && value !== "advance" && value !== "undo" && value !== "archive")))
-        .addBooleanOption((option) => option.setName("permitir").setDescription("Verdadeiro concede; falso revoga").setRequired(true)),
-    ),
 
   new SlashCommandBuilder()
     .setName("indicador")
@@ -381,21 +330,5 @@ export const commandBuilders = [
 
   new SlashCommandBuilder().setName("ajuda").setDescription("Lista comandos e primeiros passos"),
   new SlashCommandBuilder().setName("ping").setDescription("Verifica se o bot está respondendo"),
-].map((builder) => builder.toJSON()).filter((builder) => builder.name !== "permissao");
+].map((builder) => builder.toJSON());
 
-export const narratorPermissions: Record<string, readonly string[]> = {
-  countries: ["create", "edit", "archive", "read"],
-  economy: ["configure", "edit", "read", "transfer", "inflate"],
-  inventory: ["create", "edit", "read"],
-  production: ["configure", "start", "cancel", "read"],
-  population: ["edit", "configure", "read"],
-  market: ["configure", "manage", "cancel", "read", "buy", "sell"],
-  players: ["manage", "read"],
-  indicators: ["configure", "edit", "read"],
-  year: ["advance", "undo", "read"],
-  narrators: ["grant"],
-};
-
-export function validNarratorPermission(system: string, action: string): boolean {
-  return narratorPermissions[system]?.includes(action) ?? false;
-}
