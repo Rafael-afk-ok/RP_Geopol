@@ -16,9 +16,8 @@ import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorV
 import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
 import { configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
-import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, isMainNarrator, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission, revokeNarratorPermission, setCountryPermission } from "../services/permissions.js";
+import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, isMainNarrator, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission } from "../services/permissions.js";
 import { cancelProduction, listProductionQueue, startProduction } from "../services/production.js";
-import { validNarratorPermission } from "./definitions.js";
 
 type Handler = (interaction: ChatInputCommandInteraction, db: Database.Database) => Promise<void>;
 
@@ -262,44 +261,6 @@ const handlers: Record<string, Handler> = {
       removePlayer(db, guildId, countryId, interaction.user.id, target.id);
       await reply(interaction, `<@${target.id}> foi removido do país **${countryName}**.`);
     }
-  },
-
-  permissao: async (interaction, db) => {
-    const guildId = id(interaction);
-    if (interaction.options.getSubcommand() === "narrador") {
-      const target = interaction.options.getUser("jogador", true);
-      const system = interaction.options.getString("sistema", true);
-      const action = interaction.options.getString("acao", true);
-      assertDomain(validNarratorPermission(system, action), "Esta ação não existe para o sistema escolhido.");
-      if (interaction.options.getBoolean("permitir", true)) {
-        grantNarratorPermission(db, guildId, interaction.user.id, target.id, system, action);
-        await reply(interaction, `Permissão **${system}/${action}** concedida a <@${target.id}>.`);
-      } else {
-        revokeNarratorPermission(db, guildId, interaction.user.id, target.id, system, action);
-        await reply(interaction, `Permissão **${system}/${action}** revogada de <@${target.id}>.`);
-      }
-      return;
-    }
-    const countryId = countryNumber(interaction, db);
-    assertDomain(
-      playerCanManageCountry(db, guildId, interaction.user.id, countryId),
-      "Você não pode alterar permissões de jogadores neste país.",
-    );
-    const target = interaction.options.getUser("alvo", true);
-    const system = interaction.options.getString("sistema", true) as Parameters<typeof setCountryPermission>[4];
-    const action = interaction.options.getString("acao", true);
-    const allowed = interaction.options.getBoolean("permitir", true);
-    setCountryPermission(
-      db,
-      guildId,
-      countryId,
-      interaction.user.id,
-      target.id,
-      system as Parameters<typeof setCountryPermission>[5],
-      action,
-      allowed,
-    );
-    await reply(interaction, `Permissão **${system}/${action}** ${allowed ? "concedida" : "revogada"} para <@${target.id}> no país selecionado.`);
   },
 
   indicador: async (interaction, db) => {
