@@ -6,6 +6,7 @@ test("all requested slash-command categories are registered with unique valid na
   const names = commandBuilders.map((command) => command.name);
   const expected = [
     "configurar",
+    "configuracoes",
     "pais",
     "jogador",
     "indicador",
@@ -34,6 +35,12 @@ test("all requested slash-command categories are registered with unique valid na
   assert.deepEqual(names, expected);
   assert.equal(new Set(names).size, names.length);
   for (const name of names) assert.match(name, /^[a-z0-9-]{1,32}$/);
+
+  const personalSettings = commandBuilders.find((command) => command.name === "configuracoes");
+  const personalSubcommands = personalSettings?.options?.map((option) => option.name);
+  assert.deepEqual(personalSubcommands, ["pessoais"]);
+  const economyCommand = commandBuilders.find((command) => command.name === "economia");
+  assert.ok(!economyCommand?.options?.some((option) => option.name === "inflacao-automatica"));
 
   const countryCommand = commandBuilders.find((command) => command.name === "pais");
   const countrySubcommands = countryCommand?.options?.map((option) => option.name);
