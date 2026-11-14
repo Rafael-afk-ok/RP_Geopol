@@ -291,7 +291,7 @@ export function processAnnualTurn(
     }
 
     // Apply active bilateral agreements at the annual close. Insufficient funds/stock pauses that installment.
-    const transfers = db.prepare("SELECT * FROM scheduled_transfers WHERE guild_id = ? AND status = 'active' ORDER BY created_at, id").all(guildId) as Array<{ id: string; from_country_id: number; to_country_id: number; transfer_type: "money" | "item"; item_id: number | null; amount: number; remaining_years: number; description: string }>;
+    const transfers = db.prepare("SELECT * FROM scheduled_transfers WHERE guild_id = ? AND status = 'active' AND accepted = 1 ORDER BY created_at, id").all(guildId) as Array<{ id: string; from_country_id: number; to_country_id: number; transfer_type: "money" | "item"; item_id: number | null; amount: number; remaining_years: number; description: string }>;
     for (const transfer of transfers) {
       const from = db.prepare("SELECT treasury, debt_limit FROM countries WHERE id = ? AND status = 'active'").get(transfer.from_country_id) as { treasury: number; debt_limit: number } | undefined;
       const to = db.prepare("SELECT id, treasury, max_money FROM countries WHERE id = ? AND status = 'active'").get(transfer.to_country_id) as { id: number; treasury: number; max_money: number | null } | undefined;
