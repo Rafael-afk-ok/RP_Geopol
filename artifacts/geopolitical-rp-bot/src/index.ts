@@ -38,6 +38,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const [, countryIdRaw, categoryKey] = interaction.customId.split(":");
       const countryId = Number(countryIdRaw);
       if (!interaction.guildId || !Number.isInteger(countryId)) return;
+      const buttonMember = interaction.member;
+      const buttonRoleIds = buttonMember && "roles" in buttonMember
+        ? Array.isArray(buttonMember.roles) ? buttonMember.roles : [...buttonMember.roles.cache.keys()]
+        : [];
+      inTransaction(db, () => syncRoleMemberships(db, interaction.guildId!, interaction.user.id, buttonRoleIds));
       const allowed = hasNarratorPermission(db, interaction.guildId, interaction.user.id, "inventory", "read") ||
         db.prepare("SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = ?").get(countryId, interaction.user.id) !== undefined;
       if (!allowed) {
@@ -91,6 +96,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       const [, countryIdRaw, yearRaw] = interaction.customId.split(":");
       const countryId = Number(countryIdRaw), year = Number(yearRaw);
       if (!interaction.guildId || !Number.isInteger(countryId) || !Number.isInteger(year)) return;
+      const buttonMember = interaction.member;
+      const buttonRoleIds = buttonMember && "roles" in buttonMember
+        ? Array.isArray(buttonMember.roles) ? buttonMember.roles : [...buttonMember.roles.cache.keys()]
+        : [];
+      inTransaction(db, () => syncRoleMemberships(db, interaction.guildId!, interaction.user.id, buttonRoleIds));
       const allowed = hasNarratorPermission(db, interaction.guildId, interaction.user.id, "countries", "read") ||
         db.prepare("SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = ?").get(countryId, interaction.user.id) !== undefined;
       if (!allowed) {
