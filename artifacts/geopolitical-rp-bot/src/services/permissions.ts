@@ -15,9 +15,8 @@ export function hasNarratorPermission(
   action: string,
 ): boolean {
   if (isMainNarrator(db, guildId, userId)) return true;
-  // Any active narrator grant identifies the user as a full narrator.
   return db.prepare(
-    "SELECT 1 FROM narrator_grants WHERE guild_id = ? AND user_id = ? LIMIT 1",
+    "SELECT 1 FROM narrator_grants WHERE guild_id = ? AND user_id = ? AND system = '*' AND action = '*' LIMIT 1",
   ).get(guildId, userId) !== undefined;
 }
 
@@ -183,8 +182,22 @@ export function syncRoleMemberships(
   userId: string,
   memberRoleIds: readonly string[],
 ): number {
-  if (memberRoleIds.length === 0) return 0;
+  if (memberRoleIds.length === 0) {
+    db.prepare(
+      `DELETE FROM country_memberships
+       WHERE created_by = 'discord-role'
+         AND country_id IN (SELECT id FROM countries WHERE guild_id = ? AND status = 'active')`,
+    ).run(guildId);
+    return 0;
+  }
   const placeholders = memberRoleIds.map(() => "?").join(",");
+  db.prepare(
+    `DELETE FROM country_memberships
+     WHERE created_by = 'discord-role'
+       AND country_id IN (
+         SELECT id FROM countries WHERE guild_id = ? AND status = 'active' AND role_id NOT IN (${placeholders})
+       )`,
+  ).run(guildId, ...memberRoleIds);
   const roles = db.prepare(
     `SELECT id, name FROM countries
      WHERE guild_id = ? AND status = 'active' AND role_id IN (${placeholders})`,
