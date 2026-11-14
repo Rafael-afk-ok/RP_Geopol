@@ -714,16 +714,51 @@ const handlers: Record<string, Handler> = {
     const countryId = countryNumber(interaction, db);
     requireCountryOrNarratorPermission(db, guildId, countryId, interaction.user.id, "population", "read");
     const row = getPopulation(db, guildId, countryId);
+    const populationRules = db.prepare(
+      `SELECT i.name, i.is_food, r.quantity_per_unit, COALESCE(v.quantity, 0) AS stock
+       FROM country_consumption_rules r
+       JOIN items i ON i.id = r.item_id
+       LEFT JOIN country_inventory v ON v.country_id = r.country_id AND v.item_id = r.item_id
+       WHERE r.country_id = ? AND r.target = 'population'
+       ORDER BY i.is_food DESC, i.name COLLATE NOCASE`,
+    ).all(countryId) as Array<{ name: string; is_food: number; quantity_per_unit: number; stock: number }>;
+    const foodRules = populationRules.filter((rule) => rule.is_food === 1);
+    const totalFoodStock = (db.prepare(
+      `SELECT COALESCE(SUM(v.quantity), 0) AS quantity
+       FROM items i LEFT JOIN country_inventory v ON v.item_id = i.id AND v.country_id = ?
+       WHERE i.guild_id = ? AND i.is_food = 1`,
+    ).get(countryId, guildId) as { quantity: number }).quantity;
+    const foodNeed = populationRules.length
+      ? foodRules.reduce((sum, rule) => sum + row.population * rule.quantity_per_unit, 0)
+      : row.population * row.food_per_person;
+    const foodStockForRules = foodRules.reduce((sum, rule) => sum + rule.stock, 0);
+    const displayedFoodStock = populationRules.length ? foodStockForRules : totalFoodStock;
+    const foodDeficit = populationRules.length
+      ? foodRules.reduce((sum, rule) => sum + Math.max(0, row.population * rule.quantity_per_unit - rule.stock), 0)
+      : Math.max(0, foodNeed - totalFoodStock);
+    const foodDetails = populationRules.length
+      ? foodRules.length
+        ? foodRules.slice(0, 8).map((rule) =>
+          `• **${rule.name}:** ${formatNumber(row.population * rule.quantity_per_unit, 2)} necessários/ano · ${formatNumber(rule.stock, 2)} em estoque`,
+        ).join("\\n")
+        : "Nenhum alimento configurado para consumo populacional."
+      : `Consumo padrão: ${formatNumber(row.food_per_person, 4)} por habitante/ano, distribuído entre os alimentos cadastrados.`;
+    const foodSummary = [
+      `Necessidade anual: **${formatNumber(foodNeed, 2)}**`,
+      `Estoque atual: **${formatNumber(displayedFoodStock, 2)}**`,
+      `Déficit estimado: **${formatNumber(foodDeficit, 2)}**`,
+      foodDetails,
+    ].join("\\n");
     const embed = new EmbedBuilder()
       .setTitle(`População · ${row.name}`)
       .addFields(
         { name: "Habitantes", value: formatNumber(row.population, 0), inline: true },
         { name: "Crescimento anual", value: `${formatNumber(row.annual_population_growth, 2)}%`, inline: true },
-        { name: "Necessidade alimentar", value: `${formatNumber(row.food_per_person, 2)} por pessoa/ano`, inline: true },
         { name: "Contador de revolta", value: formatNumber(row.revolt_counter, 2), inline: true },
+        { name: "Consumo alimentar da população · anual", value: foodSummary.slice(0, 1024), inline: false },
       )
-      .setFooter({ text: "Consequências de revoltas são decididas pelo narrador." })
-      .setColor(0x315e56);
+      .setFooter({ text: "Déficit é uma estimativa com base no estoque atual; a compra automática ocorre no fechamento do ano. Revoltas são decididas pelo narrador." })
+      .setColor(foodDeficit > 0 ? 0xa97932 : 0x315e56);
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
@@ -1090,6 +1125,9 @@ const handlers: Record<string, Handler> = {
     const year = settings?.current_year ?? 0;
     const totals = (targetYear: number) => db.prepare("SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS gains, COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0) AS expenses FROM financial_ledger WHERE guild_id = ? AND country_id = ? AND year = ?").get(guildId, country.id, targetYear) as { gains: number; expenses: number };
     const current = totals(year), previous = totals(year - 1);
+    const taxRevenue = (db.prepare(
+      "SELECT COALESCE(SUM(amount), 0) AS total FROM financial_ledger WHERE guild_id = ? AND country_id = ? AND year = ? AND kind = 'population_tax' AND amount > 0",
+    ).get(guildId, country.id, year) as { total: number }).total;
     const net = current.gains - current.expenses, previousNet = previous.gains - previous.expenses;
     const comparison = previousNet > 0 ? `${net >= previousNet ? "+" : ""}${formatNumber(((net - previousNet) / previousNet) * 100, 1)}% em relação ao resultado do ano anterior` : "Comparação percentual indisponível (resultado anterior nulo ou negativo)";
     const symbol = settings?.currency_symbol ?? "";
@@ -1102,6 +1140,7 @@ const handlers: Record<string, Handler> = {
       : "Nenhum acordo monetário ativo.";
     const embed = new EmbedBuilder().setTitle(`Tesouro nacional · ${country.name}`).setDescription(`**Saldo atual**\n# ${symbol} ${formatNumber(country.treasury, 2)}`).addFields(
       { name: "Ganhos do ano", value: `+ ${symbol} ${formatNumber(current.gains, 2)}`, inline: true },
+      { name: "Impostos arrecadados", value: `+ ${symbol} ${formatNumber(taxRevenue, 2)}\\nIncluídos nos ganhos do ano`, inline: true },
       { name: "Gastos do ano", value: `− ${symbol} ${formatNumber(current.expenses, 2)}`, inline: true },
       { name: "Resultado anual", value: `${net >= 0 ? "+" : "−"} ${symbol} ${formatNumber(Math.abs(net), 2)}`, inline: true },
       { name: "Comparação", value: comparison },
