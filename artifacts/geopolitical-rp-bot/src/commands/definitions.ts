@@ -163,17 +163,6 @@ export const commandBuilders = [
         .addNumberOption((option) => option.setName("limite_saldo").setDescription("Limite máximo; deixe vazio para ilimitado").setRequired(false).setMinValue(0)),
     )
     .addSubcommand((subcommand) =>
-      subcommand.setName("lancar").setDescription("Cria uma receita ou despesa pontual/recorrente")
-        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
-        .addStringOption((option) => option.setName("tipo").setDescription("Receita ou despesa").setRequired(true)
-          .addChoices({ name: "Receita", value: "income" }, { name: "Despesa", value: "expense" }))
-        .addNumberOption((option) => option.setName("valor").setDescription("Valor").setRequired(true).setMinValue(0.01))
-        .addStringOption((option) => option.setName("descricao").setDescription("Descrição").setRequired(true).setMaxLength(200))
-        .addStringOption((option) => option.setName("frequencia").setDescription("Pontual ou recorrente").setRequired(true)
-          .addChoices({ name: "Uma vez", value: "one_time" }, { name: "Anual recorrente", value: "recurring" }))
-        .addIntegerOption((option) => option.setName("ano").setDescription("Ano de início").setRequired(false).setMinValue(1)),
-    )
-    .addSubcommand((subcommand) =>
       subcommand.setName("inflar").setDescription("Emite dinheiro voluntariamente para o país")
         .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("valor").setDescription("Valor emitido").setRequired(true).setMinValue(0.01)),
