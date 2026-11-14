@@ -13,9 +13,17 @@ export function createCountry(
 ): number {
   requireNarratorPermission(db, guildId, actorId, "countries", "create");
   assertDomain(name.trim().length >= 2 && name.trim().length <= 80, "O nome deve ter entre 2 e 80 caracteres.");
-  const result = db.prepare(
-    "INSERT INTO countries (guild_id, role_id, name, created_by) VALUES (?, ?, ?, ?)",
-  ).run(guildId, roleId, name.trim(), actorId);
+  let result: Database.RunResult;
+  try {
+    result = db.prepare(
+      "INSERT INTO countries (guild_id, role_id, name, created_by) VALUES (?, ?, ?, ?)",
+    ).run(guildId, roleId, name.trim(), actorId);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes("UNIQUE constraint failed: countries.guild_id, countries.role_id")) {
+      assertDomain(false, "Este cargo já está vinculado a outro país, possivelmente arquivado. Use /pais restaurar para reativá-lo ou escolha outro cargo.");
+    }
+    throw error;
+  }
   const id = Number(result.lastInsertRowid);
   audit(db, guildId, actorId, "create_country", "country", id, { name: name.trim(), roleId });
   return id;
@@ -114,4 +122,22 @@ export function deleteCountry(db: Database.Database, guildId: string, actorId: s
     return country.name;
   });
   return remove.immediate();
+}
+
+
+export function restoreCountry(db: Database.Database, guildId: string, actorId: string, countryId: number): string {
+  requireNarratorPermission(db, guildId, actorId, "countries", "archive");
+  const restore = db.transaction(() => {
+    const country = db.prepare("SELECT id, name, role_id, status FROM countries WHERE id = ? AND guild_id = ?")
+      .get(countryId, guildId) as { id: number; name: string; role_id: string; status: string } | undefined;
+    assertDomain(country, "País não encontrado.");
+    assertDomain(country.status === "archived", "Este país já está ativo.");
+    const roleOwner = db.prepare("SELECT name FROM countries WHERE guild_id = ? AND role_id = ? AND status = 'active'")
+      .get(guildId, country.role_id) as { name: string } | undefined;
+    assertDomain(!roleOwner, `O cargo deste país já está associado ao país ativo **${roleOwner?.name ?? ""}**.`);
+    db.prepare("UPDATE countries SET status = 'active' WHERE id = ? AND guild_id = ?").run(countryId, guildId);
+    audit(db, guildId, actorId, "restore_country", "country", countryId, { name: country.name });
+    return country.name;
+  });
+  return restore.immediate();
 }
