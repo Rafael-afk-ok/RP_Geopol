@@ -502,7 +502,7 @@ const handlers: Record<string, Handler> = {
       WHERE t.guild_id = ? AND t.status = 'active' AND t.transfer_type = 'item' AND (t.from_country_id = ? OR t.to_country_id = ?)
       ORDER BY t.created_at DESC LIMIT 8`).all(guildId, inventoryCountryId, inventoryCountryId) as Array<{ amount: number; remaining_years: number; sender: string; receiver: string; from_country_id: number; item_name: string }>;
     const resourceAgreementText = resourceAgreements.length
-      ? resourceAgreements.map((a) => `${a.from_country_id === inventoryCountryId ? "Envia" : "Recebe"} ${formatNumber(a.amount, 2)} × ${a.item_name} por ano · ${a.from_country_id === inventoryCountryId ? a.receiver : a.sender} · ${a.remaining_years === 0 ? "indefinido" : `${a.remaining_years} ano(s)`}`).join("\\n").slice(0, 1000)
+      ? resourceAgreements.map((a) => `${a.from_country_id === inventoryCountryId ? "Envia" : "Recebe"} ${formatNumber(a.amount, 2)} × ${a.item_name} por ano · ${a.from_country_id === inventoryCountryId ? a.receiver : a.sender} · ${a.remaining_years === 0 ? "indefinido" : `${a.remaining_years} ano(s)`}`).join("\n").slice(0, 1000)
       : "Nenhum acordo de recursos ativo.";
     const embed = new EmbedBuilder()
       .setTitle(`Inventário nacional · ${inventoryCountryName}`)
@@ -748,7 +748,7 @@ const handlers: Record<string, Handler> = {
         ? db.prepare(`SELECT t.*, a.name AS sender, b.name AS receiver, i.name AS item_name FROM scheduled_transfers t JOIN countries a ON a.id = t.from_country_id JOIN countries b ON b.id = t.to_country_id LEFT JOIN items i ON i.id = t.item_id WHERE t.guild_id = ? AND t.status = 'active' ORDER BY t.created_at DESC LIMIT 25`).all(guildId)
         : db.prepare(`SELECT t.*, a.name AS sender, b.name AS receiver, i.name AS item_name FROM scheduled_transfers t JOIN countries a ON a.id = t.from_country_id JOIN countries b ON b.id = t.to_country_id LEFT JOIN items i ON i.id = t.item_id WHERE t.guild_id = ? AND t.status = 'active' AND (EXISTS (SELECT 1 FROM country_memberships m WHERE m.country_id = t.from_country_id AND m.user_id = ?) OR EXISTS (SELECT 1 FROM country_memberships m WHERE m.country_id = t.to_country_id AND m.user_id = ?)) ORDER BY t.created_at DESC LIMIT 25`).all(guildId, interaction.user.id, interaction.user.id);
       const agreements = rows as Array<{ id: string; sender: string; receiver: string; transfer_type: string; item_name: string | null; amount: number; remaining_years: number; description: string }>;
-      const embed = new EmbedBuilder().setTitle("Negociações · acordos anuais").setDescription(agreements.length ? agreements.map((a) => `**${a.sender} → ${a.receiver}** · ${a.transfer_type === "money" ? "Dinheiro" : a.item_name} × ${formatNumber(a.amount, 2)}\nDuração: ${a.remaining_years === 0 ? "indefinida" : `${a.remaining_years} ano(s) restante(s)`} · ID \`${a.id.slice(0, 8)}\`${a.description ? `\n${a.description}` : ""}`).join("\\n\\n").slice(0, 4000) : "Nenhum acordo ativo visível para você.").setFooter({ text: "Use /negociacao editar ou /negociacao cancelar com o ID do acordo." }).setColor(0x315e56);
+      const embed = new EmbedBuilder().setTitle("Negociações · acordos anuais").setDescription(agreements.length ? agreements.map((a) => `**${a.sender} → ${a.receiver}** · ${a.transfer_type === "money" ? "Dinheiro" : a.item_name} × ${formatNumber(a.amount, 2)}\nDuração: ${a.remaining_years === 0 ? "indefinida" : `${a.remaining_years} ano(s) restante(s)`} · ID \`${a.id.slice(0, 8)}\`${a.description ? `\n${a.description}` : ""}`).join("\n\n").slice(0, 4000) : "Nenhum acordo ativo visível para você.").setFooter({ text: "Use /negociacao editar ou /negociacao cancelar com o ID do acordo." }).setColor(0x315e56);
       await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
       return;
     }
@@ -805,7 +805,7 @@ const handlers: Record<string, Handler> = {
       { name: "Efetivo total", value: formatNumber(country.army_size, 0), inline: true },
       { name: "Equipados", value: formatNumber(equipped, 0), inline: true },
       { name: "Sem equipamento", value: formatNumber(Math.max(0, country.army_size - equipped), 0), inline: true },
-    ).setDescription(lines.join("\\n") || "Nenhum equipamento atribuído.").setColor(0x315e56);
+    ).setDescription(lines.join("\n") || "Nenhum equipamento atribuído.").setColor(0x315e56);
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
@@ -966,7 +966,7 @@ const handlers: Record<string, Handler> = {
       WHERE t.guild_id = ? AND t.status = 'active' AND t.transfer_type = 'money' AND (t.from_country_id = ? OR t.to_country_id = ?)
       ORDER BY t.created_at DESC LIMIT 8`).all(guildId, country.id, country.id) as Array<{ amount: number; remaining_years: number; sender: string; receiver: string; from_country_id: number }>;
     const moneyAgreementText = moneyAgreements.length
-      ? moneyAgreements.map((a) => `${a.from_country_id === country.id ? "Envia" : "Recebe"} ${symbol} ${formatNumber(a.amount, 2)} por ano · ${a.from_country_id === country.id ? a.receiver : a.sender} · ${a.remaining_years === 0 ? "indefinido" : `${a.remaining_years} ano(s)`}`).join("\\n").slice(0, 1000)
+      ? moneyAgreements.map((a) => `${a.from_country_id === country.id ? "Envia" : "Recebe"} ${symbol} ${formatNumber(a.amount, 2)} por ano · ${a.from_country_id === country.id ? a.receiver : a.sender} · ${a.remaining_years === 0 ? "indefinido" : `${a.remaining_years} ano(s)`}`).join("\n").slice(0, 1000)
       : "Nenhum acordo monetário ativo.";
     const embed = new EmbedBuilder().setTitle(`Tesouro nacional · ${country.name}`).setDescription(`**Saldo atual**\n# ${symbol} ${formatNumber(country.treasury, 2)}`).addFields(
       { name: "Ganhos do ano", value: `+ ${symbol} ${formatNumber(current.gains, 2)}`, inline: true },
