@@ -845,6 +845,7 @@ const handlers: Record<string, Handler> = {
     const guildId = id(interaction);
     assertDomain(isMainNarrator(db, guildId, interaction.user.id), "Somente o Narrador Supremo pode nomear ou remover narradores.");
     const target = interaction.options.getUser("jogador", true);
+    assertDomain(target.id !== interaction.user.id && !isMainNarrator(db, guildId, target.id), "O Narrador Supremo não pode ser removido ou substituído por este comando.");
     if (interaction.options.getSubcommand() === "adicionar") {
       grantNarratorPermission(db, guildId, interaction.user.id, target.id, "*", "*");
       await reply(interaction, `${target.username} agora é narrador e possui acesso administrativo completo.`);
@@ -878,7 +879,6 @@ const handlers: Record<string, Handler> = {
   gastar: async (interaction, db) => {
     const guildId = id(interaction);
     const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais") ?? undefined);
-    requireCountryOrNarratorPermission(db, guildId, country.id, interaction.user.id, "economy", "edit");
     const amount = interaction.options.getNumber("valor", true), reason = interaction.options.getString("motivo", true);
     adjustBalance(db, country.id, guildId, interaction.user.id, -amount, "player_spend", reason);
     await reply(interaction, `Gasto registrado para ${country.name}: − ${formatNumber(amount, 2)}. Motivo: ${reason}`);
