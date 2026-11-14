@@ -89,6 +89,29 @@ test("bilateral trade contracts apply tariffs, transfer goods annually, and can 
   }
 });
 
+test("trade tariff is excluded from export revenue because it is not credited to a treasury", () => {
+  const db = createTestDatabase();
+  try {
+    const seller = insertCountry(db, { name: "RevenueSeller", treasury: 0, debtLimit: 100 });
+    const buyer = insertCountry(db, { name: "RevenueBuyer", treasury: 1000, debtLimit: 100 });
+    const iron = addItem(db, "Revenue iron");
+    db.prepare("INSERT INTO country_inventory(country_id,item_id,quantity) VALUES(?,?,10)").run(seller, iron);
+    const contract = createTradeContract(db, "guild", "narrator", seller, buyer, iron, 10, 10, 1, "Revenue test");
+    acceptTradeContract(db, "guild", "narrator", contract);
+    setImportTariff(db, "guild", "narrator", buyer, 10);
+
+    const result = processAnnualTradeContracts(db, "guild", "narrator", 1, "trade-revenue-test");
+    assert.equal(result.applied, 1);
+    assert.equal(result.tariffs, 10);
+    assert.equal(result.revenue, 100);
+    assert.equal(result.expenses, 110);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(seller) as { treasury: number }).treasury, 100);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(buyer) as { treasury: number }).treasury, 890);
+  } finally {
+    closeTestDatabase(db);
+  }
+});
+
 test("player-market import tariff is an additional cost paid only by the importer", () => {
   const db = createTestDatabase();
   try {
