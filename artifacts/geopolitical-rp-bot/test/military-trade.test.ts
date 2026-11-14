@@ -72,8 +72,9 @@ test("bilateral trade contracts apply tariffs, transfer goods annually, and can 
     assert.equal(run.summary.tradeTariffs, 10);
     assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id=? AND item_id=?").get(seller, iron) as {quantity:number}).quantity, 10);
     assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id=? AND item_id=?").get(buyer, iron) as {quantity:number}).quantity, 10);
-    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(buyer) as {treasury:number}).treasury, 890);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(buyer) as {treasury:number}).treasury, 900);
     assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(seller) as {treasury:number}).treasury, 100);
+    assert.equal((db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM financial_ledger WHERE country_id=? AND kind='import_tariff_revenue'").get(buyer) as {total:number}).total, 10);
     assert.equal((db.prepare("SELECT status FROM trade_contracts WHERE id=?").get(contract) as {status:string}).status, "completed");
 
     undoAnnualTurn(db, "guild", "narrator");
@@ -105,4 +106,17 @@ test("embargo suspends annual trade without moving money or inventory", () => {
   } finally {
     closeTestDatabase(db);
   }
+});
+
+
+test("custom equipment maintenance is charged only for assigned units", () => {
+  const db = createTestDatabase();
+  try {
+    const country = insertCountry(db, { name: "CustomArmy", treasury: 100, debtLimit: 100 });
+    const custom = Number(db.prepare("INSERT INTO items (guild_id,name,category,annual_maintenance,created_by) VALUES ('guild','Custom radio','custom',3,'narrator')").run().lastInsertRowid);
+    db.prepare("INSERT INTO country_inventory (country_id,item_id,quantity) VALUES (?,?,20)").run(country, custom);
+    db.prepare("INSERT INTO army_equipment_assignments (country_id,item_id,assigned_soldiers,updated_by) VALUES (?,?,5,'narrator')").run(country, custom);
+    processAnnualTurn(db, "guild", "narrator", "custom-maintenance");
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(country) as {treasury:number}).treasury, 85);
+  } finally { closeTestDatabase(db); }
 });

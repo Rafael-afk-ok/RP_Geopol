@@ -99,7 +99,7 @@ test("craft automatically buys missing materials from the global market when aff
   }
 });
 
-test("craft is blocked when missing materials cannot be bought", () => {
+test("craft finances missing materials through inflation when treasury is insufficient", () => {
   const db = createTestDatabase();
   try {
     const countryId = insertCountry(db, { name: "Poor", treasury: 1 });
@@ -114,12 +114,12 @@ test("craft is blocked when missing materials cannot be bought", () => {
     db.prepare(
       "INSERT INTO global_stock (guild_id, item_id, quantity, current_price, base_price, min_price, max_price, max_quantity) VALUES ('guild', ?, 5, 2, 2, 1, 10, 5)",
     ).run(materialId);
-    assert.throws(
-      () => startProduction(db, "guild", "narrator", countryId, productId, 1),
-      /não possui dinheiro suficiente/,
-    );
-    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM production_orders").get() as { count: number }).count, 0);
-    assert.equal((db.prepare("SELECT quantity FROM global_stock WHERE item_id = ?").get(materialId) as { quantity: number }).quantity, 5);
+    const order = startProduction(db, "guild", "narrator", countryId, productId, 1);
+    assert.ok(order.orderId);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM production_orders").get() as { count: number }).count, 1);
+    assert.equal((db.prepare("SELECT quantity FROM global_stock WHERE item_id = ?").get(materialId) as { quantity: number }).quantity, 2);
+    assert.equal((db.prepare("SELECT inflation_issued FROM countries WHERE id = ?").get(countryId) as { inflation_issued: number }).inflation_issued, 5);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id = ?").get(countryId) as { treasury: number }).treasury, 0);
   } finally {
     closeTestDatabase(db);
   }
@@ -142,4 +142,27 @@ test("narrator can disable fabrication for an item", () => {
   } finally {
     closeTestDatabase(db);
   }
+});
+
+
+test("production buys only unassigned material and uses inflation for the shortfall", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { name: "Arsenal", treasury: 0, debtLimit: 0 });
+    const materialId = Number(db.prepare(
+      "INSERT INTO items (guild_id,name,category,global_tradeable,created_by) VALUES ('guild','Rifle','military',1,'narrator')",
+    ).run().lastInsertRowid);
+    const productId = Number(db.prepare(
+      "INSERT INTO items (guild_id,name,category,production_cost,production_years,created_by) VALUES ('guild','Armored vehicle','military',0,1,'narrator')",
+    ).run().lastInsertRowid);
+    db.prepare("INSERT INTO item_requirements (item_id,material_item_id,quantity) VALUES (?,?,5)").run(productId, materialId);
+    db.prepare("INSERT INTO country_inventory (country_id,item_id,quantity) VALUES (?,?,10)").run(countryId, materialId);
+    db.prepare("INSERT INTO army_equipment_assignments (country_id,item_id,assigned_soldiers,updated_by) VALUES (?,?,8,'narrator')").run(countryId, materialId);
+    db.prepare("INSERT INTO global_stock (guild_id,item_id,quantity,current_price,base_price,min_price,max_price,max_quantity) VALUES ('guild',?,5,2,2,1,10,5)").run(materialId);
+    startProduction(db, "guild", "narrator", countryId, productId, 1);
+    assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id=? AND item_id=?").get(countryId,materialId) as {quantity:number}).quantity, 8);
+    assert.equal((db.prepare("SELECT quantity FROM global_stock WHERE guild_id='guild' AND item_id=?").get(materialId) as {quantity:number}).quantity, 2);
+    assert.equal((db.prepare("SELECT inflation_issued FROM countries WHERE id=?").get(countryId) as {inflation_issued:number}).inflation_issued, 6);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(countryId) as {treasury:number}).treasury, 0);
+  } finally { closeTestDatabase(db); }
 });

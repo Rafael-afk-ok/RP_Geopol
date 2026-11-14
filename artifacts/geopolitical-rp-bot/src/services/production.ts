@@ -46,7 +46,11 @@ export function startProduction(
       const stock = db.prepare(
         "SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?",
       ).get(countryId, requirement.material_item_id) as { quantity: number } | undefined;
-      const missing = Math.max(0, required - (stock?.quantity ?? 0));
+      const assigned = db.prepare(
+        "SELECT assigned_soldiers FROM army_equipment_assignments WHERE country_id = ? AND item_id = ?",
+      ).get(countryId, requirement.material_item_id) as { assigned_soldiers: number } | undefined;
+      const available = Math.max(0, (stock?.quantity ?? 0) - (assigned?.assigned_soldiers ?? 0));
+      const missing = Math.max(0, required - available);
       if (missing > 1e-9) {
         const world = db.prepare(
           "SELECT quantity, current_price FROM global_stock WHERE guild_id = ? AND item_id = ?",
@@ -55,8 +59,13 @@ export function startProduction(
           `Produção suspensa: faltam ${missing} unidades do material #${requirement.material_item_id} e o mercado mundial não possui estoque suficiente.`);
         const purchaseCost = world.current_price * missing;
         const balance = db.prepare("SELECT treasury FROM countries WHERE id = ?").get(countryId) as { treasury: number };
-        assertDomain(balance.treasury + 1e-9 >= purchaseCost,
-          `Produção suspensa: faltam ${missing} unidades do material #${requirement.material_item_id}, mas o país não possui dinheiro suficiente para comprá-las.`);
+        const cash = Math.max(0, balance.treasury);
+        const inflationNeeded = Math.max(0, purchaseCost - cash);
+        if (inflationNeeded > 0) {
+          adjustBalance(db, countryId, guildId, actorId, inflationNeeded, "automatic_material_inflation",
+            `Financiamento inflacionário de materiais para fabricar ${item.name}`);
+          db.prepare("UPDATE countries SET inflation_issued = inflation_issued + ? WHERE id = ?").run(inflationNeeded, countryId);
+        }
         adjustBalance(db, countryId, guildId, actorId, -purchaseCost, "automatic_material_purchase",
           `Compra automática de material para fabricar ${item.name}`);
         changeInventory(db, countryId, requirement.material_item_id, missing);
