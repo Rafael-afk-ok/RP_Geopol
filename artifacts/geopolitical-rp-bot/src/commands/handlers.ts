@@ -466,8 +466,9 @@ const handlers: Record<string, Handler> = {
         itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("produz", true),
         interaction.options.getNumber("consome", true),
+        interaction.options.getNumber("exportar_percentual") ?? 0,
       );
-      await reply(interaction, "Produção e consumo anual atualizados.");
+      await reply(interaction, "Produção, consumo e percentual de exportação anual atualizados.");
       return;
     }
     if (subcommand === "requisito") {
@@ -493,8 +494,10 @@ const handlers: Record<string, Handler> = {
         interaction.options.getNumber("preco_base", true),
         interaction.options.getNumber("preco_minimo", true),
         interaction.options.getNumber("preco_maximo", true),
+        interaction.options.getNumber("estoque_maximo", true),
+        interaction.options.getNumber("reposicao_anual", true),
       );
-      await reply(interaction, "Estoque e preços globais atualizados.");
+      await reply(interaction, "Estoque, capacidade, reposição e preços globais atualizados.");
       return;
     }
     const inventoryCountryId = countryNumber(interaction, db);
