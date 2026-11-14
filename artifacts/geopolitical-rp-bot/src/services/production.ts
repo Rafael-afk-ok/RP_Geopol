@@ -58,10 +58,17 @@ export function startProduction(
         assertDomain(world && world.quantity + 1e-9 >= missing,
           `Produção suspensa: faltam ${missing} unidades do material #${requirement.material_item_id} e o mercado mundial não possui estoque suficiente.`);
         const purchaseCost = world.current_price * missing;
-        const balance = db.prepare("SELECT treasury FROM countries WHERE id = ?").get(countryId) as { treasury: number };
+        const balance = db.prepare(
+          `SELECT c.treasury, c.automatic_inflation_enabled, s.inflation_rate_percent
+           FROM countries c JOIN guild_settings s ON s.guild_id = c.guild_id
+           WHERE c.id = ? AND c.guild_id = ? AND c.status = 'active'`,
+        ).get(countryId, guildId) as { treasury: number; automatic_inflation_enabled: number; inflation_rate_percent: number } | undefined;
+        assertDomain(balance, "País ou configuração econômica não encontrada.");
         const cash = Math.max(0, balance.treasury);
         const inflationNeeded = Math.max(0, purchaseCost - cash);
         if (inflationNeeded > 0) {
+          assertDomain(balance.automatic_inflation_enabled === 1 && balance.inflation_rate_percent > 0,
+            "Compra automática suspensa: o país não permite financiamento inflacionário ou a inflação global está desativada.");
           adjustBalance(db, countryId, guildId, actorId, inflationNeeded, "automatic_material_inflation",
             `Financiamento inflacionário de materiais para fabricar ${item.name}`);
           db.prepare("UPDATE countries SET inflation_issued = inflation_issued + ? WHERE id = ?").run(inflationNeeded, countryId);
