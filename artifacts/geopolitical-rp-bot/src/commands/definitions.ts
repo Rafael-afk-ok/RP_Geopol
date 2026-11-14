@@ -315,7 +315,7 @@ export const commandBuilders = [
     .addSubcommand((subcommand) => subcommand.setName("avancar").setDescription("Processa o próximo ano atomicamente"))
     .addSubcommand((subcommand) => subcommand.setName("desfazer").setDescription("Restaura o estado anterior ao último ano (sem alterações posteriores)"))
     .addSubcommand((subcommand) => subcommand.setName("definir").setDescription("Define o ano atual (narrador)")
-      .addIntegerOption((option) => option.setName("ano").setDescription("Ano com quatro dígitos").setRequired(true).setMinValue(1000).setMaxValue(9999)),
+      .addIntegerOption((option) => option.setName("ano").setDescription("Ano com quatro dígitos").setRequired(true).setMinValue(1000).setMaxValue(9999))),
 
   new SlashCommandBuilder()
     .setName("historico")
