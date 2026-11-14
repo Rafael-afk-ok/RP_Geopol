@@ -50,7 +50,7 @@ function jsonValue(value: string | null): unknown {
 function userCountriesEmbed(title: string, rows: Array<{ id: number; name: string }>): EmbedBuilder {
   return new EmbedBuilder()
     .setTitle(title)
-    .setDescription(rows.length ? rows.map((row) => `**${row.name}**`).join("\\n") : "Nenhum país disponível.")
+    .setDescription(rows.length ? rows.map((row) => `**${row.name}**`).join("\n") : "Nenhum país disponível.")
     .setColor(0x315e56);
 }
 
