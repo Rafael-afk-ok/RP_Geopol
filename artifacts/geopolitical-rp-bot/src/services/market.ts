@@ -19,15 +19,20 @@ export function setMarketSettings(
   actorId: string,
   expirationYears: number,
   sensitivity: number,
+  maxAnnualIncreasePercent: number,
+  annualDecayPercent: number,
 ): void {
   requireNarratorPermission(db, guildId, actorId, "market", "configure");
   assertDomain(Number.isInteger(expirationYears) && expirationYears >= 3 && expirationYears <= 5, "Ofertas devem expirar entre 3 e 5 anos.");
   assertDomain(Number.isFinite(sensitivity) && sensitivity >= 0 && sensitivity <= 5, "A sensibilidade de preços deve ficar entre 0 e 5.");
+  assertDomain(Number.isFinite(maxAnnualIncreasePercent) && maxAnnualIncreasePercent >= 0 && maxAnnualIncreasePercent <= 500, "O aumento máximo anual deve ficar entre 0% e 500%.");
+  assertDomain(Number.isFinite(annualDecayPercent) && annualDecayPercent >= 0 && annualDecayPercent <= 100, "O recuo anual deve ficar entre 0% e 100%.");
   db.prepare(
     `UPDATE guild_settings SET market_expiration_years = ?, global_market_price_sensitivity = ?,
+     global_market_max_annual_increase_percent = ?, global_market_price_decay_percent = ?,
      updated_at = CURRENT_TIMESTAMP WHERE guild_id = ?`,
-  ).run(expirationYears, sensitivity, guildId);
-  audit(db, guildId, actorId, "configure_market", "guild", guildId, { expirationYears, sensitivity });
+  ).run(expirationYears, sensitivity, maxAnnualIncreasePercent, annualDecayPercent, guildId);
+  audit(db, guildId, actorId, "configure_market", "guild", guildId, { expirationYears, sensitivity, maxAnnualIncreasePercent, annualDecayPercent });
 }
 
 export function createPlayerOffer(
