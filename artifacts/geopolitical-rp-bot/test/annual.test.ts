@@ -257,3 +257,17 @@ test("undo restores inflation and voids only annual market transactions", () => 
     assert.equal((db.prepare("SELECT COUNT(*) AS n FROM global_market_trades WHERE run_id = ? AND voided_at IS NOT NULL").get(run.runId) as { n: number }).n, 1);
   } finally { closeTestDatabase(db); }
 });
+
+
+test("a country hitting its treasury ceiling does not abort the global annual close", () => {
+  const db = createTestDatabase();
+  try {
+    const capped = insertCountry(db, { name: "Capped", maxMoney: 10, annualIncome: 100 });
+    const normal = insertCountry(db, { name: "Normal", annualIncome: 5 });
+    const result = processAnnualTurn(db, "guild", "narrator", "one-country-money-cap");
+    assert.equal(result.summary.blockedFinancialOperations, 1);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id = ?").get(capped) as { treasury: number }).treasury, 0);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id = ?").get(normal) as { treasury: number }).treasury, 5);
+    assert.equal((db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = 'guild'").get() as { current_year: number }).current_year, 1);
+  } finally { closeTestDatabase(db); }
+});
