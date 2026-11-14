@@ -224,7 +224,7 @@ export function processAnnualTurn(
 
     // Annual production and normal consumption. Food is consumed after population needs are calculated.
     const productionRows = db.prepare(
-      `SELECT cp.country_id, cp.item_id, cp.annual_production, cp.annual_consumption, i.is_food
+      `SELECT cp.country_id, cp.item_id, cp.annual_production, cp.annual_consumption, i.is_food, i.category
        FROM country_production cp JOIN items i ON i.id = cp.item_id
        JOIN countries c ON c.id = cp.country_id
        WHERE c.guild_id = ? AND c.status = 'active' ORDER BY cp.country_id, cp.item_id`,
@@ -234,6 +234,7 @@ export function processAnnualTurn(
       annual_production: number;
       annual_consumption: number;
       is_food: number;
+      category: string;
     }>;
     const inventoryDelta = (countryId: number, itemId: number, delta: number): void => {
       const current = db.prepare(
@@ -248,7 +249,7 @@ export function processAnnualTurn(
     };
     for (const row of productionRows) {
       if (row.annual_production > 0) inventoryDelta(row.country_id, row.item_id, row.annual_production);
-      if (!row.is_food && row.annual_consumption > 0) {
+      if (!row.is_food && row.category !== 'military' && row.annual_consumption > 0) {
         const current = db.prepare(
           "SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?",
         ).get(row.country_id, row.item_id) as { quantity: number } | undefined;
