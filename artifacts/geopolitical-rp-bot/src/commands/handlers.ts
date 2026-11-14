@@ -497,11 +497,19 @@ const handlers: Record<string, Handler> = {
     const inventoryCountryId = countryNumber(interaction, db);
     const inventoryCountryName = getCountryForView(db, guildId, interaction.user.id, inventoryCountryId).name;
     const rows = listCountryInventory(db, guildId, interaction.user.id, inventoryCountryId);
+    const resourceAgreements = db.prepare(`SELECT t.amount, t.remaining_years, a.name AS sender, b.name AS receiver, t.from_country_id, i.name AS item_name
+      FROM scheduled_transfers t JOIN countries a ON a.id = t.from_country_id JOIN countries b ON b.id = t.to_country_id JOIN items i ON i.id = t.item_id
+      WHERE t.guild_id = ? AND t.status = 'active' AND t.transfer_type = 'item' AND (t.from_country_id = ? OR t.to_country_id = ?)
+      ORDER BY t.created_at DESC LIMIT 8`).all(guildId, inventoryCountryId, inventoryCountryId) as Array<{ amount: number; remaining_years: number; sender: string; receiver: string; from_country_id: number; item_name: string }>;
+    const resourceAgreementText = resourceAgreements.length
+      ? resourceAgreements.map((a) => `${a.from_country_id === inventoryCountryId ? "Envia" : "Recebe"} ${formatNumber(a.amount, 2)} × ${a.item_name} por ano · ${a.from_country_id === inventoryCountryId ? a.receiver : a.sender} · ${a.remaining_years === 0 ? "indefinido" : `${a.remaining_years} ano(s)`}`).join("\\n").slice(0, 1000)
+      : "Nenhum acordo de recursos ativo.";
     const embed = new EmbedBuilder()
       .setTitle(`Inventário nacional · ${inventoryCountryName}`)
       .setDescription(rows.length
         ? rows.map((row) => `**${row.name}** · ${row.category}: ${formatNumber(row.quantity, 2)}${row.unit ? ` ${row.unit}` : ""}`).join("\n").slice(0, 4000)
         : "Nenhum item configurado.")
+      .addFields({ name: "Acordos anuais de recursos", value: resourceAgreementText })
       .setColor(0x315e56);
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
@@ -952,12 +960,19 @@ const handlers: Record<string, Handler> = {
     const net = current.gains - current.expenses, previousNet = previous.gains - previous.expenses;
     const comparison = previousNet > 0 ? `${net >= previousNet ? "+" : ""}${formatNumber(((net - previousNet) / previousNet) * 100, 1)}% em relação ao resultado do ano anterior` : "Comparação percentual indisponível (resultado anterior nulo ou negativo)";
     const symbol = settings?.currency_symbol ?? "";
+    const moneyAgreements = db.prepare(`SELECT t.amount, t.remaining_years, a.name AS sender, b.name AS receiver, t.from_country_id
+      FROM scheduled_transfers t JOIN countries a ON a.id = t.from_country_id JOIN countries b ON b.id = t.to_country_id
+      WHERE t.guild_id = ? AND t.status = 'active' AND t.transfer_type = 'money' AND (t.from_country_id = ? OR t.to_country_id = ?)
+      ORDER BY t.created_at DESC LIMIT 8`).all(guildId, country.id, country.id) as Array<{ amount: number; remaining_years: number; sender: string; receiver: string; from_country_id: number }>;
+    const moneyAgreementText = moneyAgreements.length
+      ? moneyAgreements.map((a) => `${a.from_country_id === country.id ? "Envia" : "Recebe"} ${symbol} ${formatNumber(a.amount, 2)} por ano · ${a.from_country_id === country.id ? a.receiver : a.sender} · ${a.remaining_years === 0 ? "indefinido" : `${a.remaining_years} ano(s)`}`).join("\\n").slice(0, 1000)
+      : "Nenhum acordo monetário ativo.";
     const embed = new EmbedBuilder().setTitle(`Tesouro nacional · ${country.name}`).setDescription(`**Saldo atual**\n# ${symbol} ${formatNumber(country.treasury, 2)}`).addFields(
       { name: "Ganhos do ano", value: `+ ${symbol} ${formatNumber(current.gains, 2)}`, inline: true },
       { name: "Gastos do ano", value: `− ${symbol} ${formatNumber(current.expenses, 2)}`, inline: true },
       { name: "Resultado anual", value: `${net >= 0 ? "+" : "−"} ${symbol} ${formatNumber(Math.abs(net), 2)}`, inline: true },
       { name: "Comparação", value: comparison },
-    ).setFooter({ text: `Exercício ${year} · Detalhamento disponível pelo botão abaixo` }).setColor(net >= 0 ? 0x27865b : 0xa94442);
+    ).addFields({ name: "Acordos anuais", value: moneyAgreementText }).setFooter({ text: `Exercício ${year} · Detalhamento disponível pelo botão abaixo` }).setColor(net >= 0 ? 0x27865b : 0xa94442);
     const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`saldo_detalhes:${country.id}:${year}`).setLabel("Detalhamento do ano").setStyle(ButtonStyle.Secondary));
     await interaction.editReply({ embeds: [embed], components: [row], allowedMentions: { parse: [] } });
   },
