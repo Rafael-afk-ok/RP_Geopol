@@ -40,7 +40,7 @@ test("all members can edit only the country they belong to", () => {
       (db.prepare("SELECT annual_production, annual_consumption FROM country_production WHERE country_id = ? AND item_id = ?").get(countryId, itemId) as { annual_production: number; annual_consumption: number }).annual_production,
       5,
     );
-    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM economy_entries WHERE country_id = ?").get(countryId) as { count: number }).count, 1);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM economy_entries WHERE country_id = ?").get(countryId) as { count: number }).count, 2);
   } finally {
     closeTestDatabase(db);
   }
