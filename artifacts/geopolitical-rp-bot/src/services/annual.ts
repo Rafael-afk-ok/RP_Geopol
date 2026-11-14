@@ -16,7 +16,7 @@ interface AnnualSnapshot {
   inventory: Array<{ country_id: number; item_id: number; quantity: number }>;
   productionOrders: Array<{ id: string; remaining_years: number; status: string }>;
   economyEntries: Array<{ id: number; active: number }>;
-  globalStock: Array<{ item_id: number; quantity: number; current_price: number }>;
+  globalStock: Array<{ item_id: number; quantity: number; current_price: number; base_price: number; min_price: number; max_price: number }>;
   playerOffers: Array<{ id: string; remaining_quantity: number; status: string }>;
 }
 
@@ -47,7 +47,7 @@ function snapshotGuild(db: Database.Database, guildId: string): AnnualSnapshot {
        JOIN countries c ON c.id = e.country_id WHERE c.guild_id = ? ORDER BY e.id`,
     ).all(guildId) as AnnualSnapshot["economyEntries"],
     globalStock: db.prepare(
-      "SELECT item_id, quantity, current_price FROM global_stock WHERE guild_id = ? ORDER BY item_id",
+      "SELECT item_id, quantity, current_price, base_price, min_price, max_price FROM global_stock WHERE guild_id = ? ORDER BY item_id",
     ).all(guildId) as AnnualSnapshot["globalStock"],
     playerOffers: db.prepare(
       "SELECT id, remaining_quantity, status FROM player_offers WHERE guild_id = ? ORDER BY id",
@@ -534,9 +534,12 @@ export function undoAnnualTurn(
       }
     }
     for (const stock of before.globalStock) {
-      db.prepare("UPDATE global_stock SET quantity = ?, current_price = ? WHERE guild_id = ? AND item_id = ?").run(
+      db.prepare("UPDATE global_stock SET quantity = ?, current_price = ?, base_price = ?, min_price = ?, max_price = ? WHERE guild_id = ? AND item_id = ?").run(
         stock.quantity,
         stock.current_price,
+        stock.base_price,
+        stock.min_price,
+        stock.max_price,
         guildId,
         stock.item_id,
       );
