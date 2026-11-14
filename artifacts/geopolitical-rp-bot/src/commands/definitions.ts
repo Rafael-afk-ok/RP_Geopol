@@ -392,7 +392,7 @@ export const commandBuilders = [
 
   new SlashCommandBuilder().setName("ajuda").setDescription("Lista comandos e primeiros passos"),
   new SlashCommandBuilder().setName("ping").setDescription("Verifica se o bot está respondendo"),
-].map((builder) => builder.toJSON());
+].map((builder) => builder.toJSON()).filter((builder) => builder.name !== "permissao");
 
 export const narratorPermissions: Record<string, readonly string[]> = {
   countries: ["create", "edit", "archive", "read"],
