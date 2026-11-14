@@ -96,6 +96,8 @@ export function processAnnualTurn(
           food_shortage_severity: number;
           revolt_normalization_per_year: number;
           global_market_price_sensitivity: number;
+          global_market_max_annual_increase_percent: number;
+          global_market_price_decay_percent: number;
         }
       | undefined;
     assertDomain(settings, "Servidor ainda não foi inicializado.");
@@ -391,11 +393,12 @@ export function processAnnualTurn(
 
     // Inflation is global; trade pressure adds demand/supply movement to each shared price.
     const stockRows = db.prepare(
-      "SELECT item_id, quantity, current_price, min_price, max_price FROM global_stock WHERE guild_id = ? ORDER BY item_id",
+      "SELECT item_id, quantity, current_price, base_price, min_price, max_price FROM global_stock WHERE guild_id = ? ORDER BY item_id",
     ).all(guildId) as Array<{
       item_id: number;
       quantity: number;
       current_price: number;
+      base_price: number;
       min_price: number;
       max_price: number;
     }>;
@@ -410,10 +413,22 @@ export function processAnnualTurn(
       const denominator = Math.max(1, stock.quantity + tradedVolume);
       const demandPressure = (volume.bought - volume.sold) / denominator * settings.global_market_price_sensitivity;
       const inflationPressure = settings.inflation_rate_percent / 100;
-      const nextPrice = Math.min(
-        stock.max_price,
-        Math.max(stock.min_price, stock.current_price * (1 + inflationPressure + demandPressure)),
-      );
+      const decay = settings.global_market_price_decay_percent / 100;
+      let nextPrice: number;
+      if (volume.bought <= 0 && volume.sold <= 0) {
+        // Without purchases, prices drift toward the base. Near/below the base,
+        // the decline becomes progressively smaller as it approaches the minimum.
+        const nearBase = stock.current_price <= stock.base_price * 1.01;
+        const reference = nearBase ? stock.min_price : stock.base_price;
+        nextPrice = stock.current_price - Math.max(0, stock.current_price - reference) * decay;
+      } else {
+        const rawChange = inflationPressure + demandPressure;
+        const boundedChange = rawChange > 0
+          ? Math.min(rawChange, settings.global_market_max_annual_increase_percent / 100)
+          : rawChange;
+        nextPrice = stock.current_price * (1 + boundedChange);
+      }
+      nextPrice = Math.min(stock.max_price, Math.max(stock.min_price, nextPrice));
       db.prepare("UPDATE global_stock SET current_price = ? WHERE guild_id = ? AND item_id = ?").run(
         nextPrice,
         guildId,
