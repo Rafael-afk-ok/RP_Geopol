@@ -146,7 +146,7 @@ export function processAnnualTurn(
     const summary = { countries: 0, revenue: 0, taxRevenue: 0, exportRevenue: 0, expenses: 0, completedOrders: 0, expiredOffers: 0, foodDeficit: 0, populationShortage: 0, armyShortage: 0, transfersApplied: 0, transfersFailed: 0, tradeContractsApplied: 0, tradeContractsFailed: 0, tradeTariffs: 0, blockedFinancialOperations: 0 };
     const countries = db.prepare(
       `SELECT id, name, treasury, max_money, debt_limit, annual_income, population,
-        annual_population_growth, food_per_person, revolt_counter, inflation_issued, army_size, military_readiness
+        annual_population_growth, food_per_person, revolt_counter, inflation_issued, army_size, military_readiness, automatic_inflation_enabled
        FROM countries WHERE guild_id = ? AND status = 'active' ORDER BY id`,
     ).all(guildId) as Array<{
       id: number;
