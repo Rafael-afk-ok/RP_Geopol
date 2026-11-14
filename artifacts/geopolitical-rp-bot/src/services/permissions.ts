@@ -142,26 +142,17 @@ export function requireCountryPermission(
   guildId: string,
   countryId: number,
   userId: string,
-  system: PermissionSystem,
-  action: string,
+  _system: PermissionSystem,
+  _action: string,
 ): void {
   const country = db.prepare("SELECT id, guild_id, status FROM countries WHERE id = ?").get(countryId) as
     | { id: number; guild_id: string; status: string }
     | undefined;
   assertDomain(country && country.guild_id === guildId && country.status === "active", "País indisponível.", "COUNTRY_UNAVAILABLE");
   const membership = db.prepare(
-    "SELECT permissions_json FROM country_memberships WHERE country_id = ? AND user_id = ?",
-  ).get(countryId, userId) as { permissions_json: string } | undefined;
+    "SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = ?",
+  ).get(countryId, userId);
   assertDomain(membership, "Você não está associado a este país.", "COUNTRY_PRIVATE");
-  const permissions = JSON.parse(membership.permissions_json) as Record<string, boolean>;
-  const allowed = action === "read"
-    ? permissions.read === true || permissions[`${system}.${action}`] === true
-    : permissions[`${system}.${action}`] === true;
-  assertDomain(
-    allowed,
-    `Você não tem permissão de ${system}/${action} neste país.`,
-    "COUNTRY_PERMISSION_DENIED",
-  );
 }
 
 export function requireCountryOrNarratorPermission(
