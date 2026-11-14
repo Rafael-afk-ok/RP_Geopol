@@ -16,7 +16,7 @@ import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorV
 import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, setCountryProduction, setGlobalStock } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
 import { configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
-import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission, revokeNarratorPermission, setCountryPermission } from "../services/permissions.js";
+import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, isMainNarrator, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission, revokeNarratorPermission, setCountryPermission } from "../services/permissions.js";
 import { cancelProduction, listProductionQueue, startProduction } from "../services/production.js";
 import { validNarratorPermission } from "./definitions.js";
 
@@ -748,6 +748,20 @@ const handlers: Record<string, Handler> = {
         : "Nenhum lançamento financeiro.")
       .setColor(0x315e56);
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+  },
+
+  narrador: async (interaction, db) => {
+    const guildId = id(interaction);
+    assertDomain(isMainNarrator(db, guildId, interaction.user.id), "Somente o Narrador Supremo pode nomear ou remover narradores.");
+    const target = interaction.options.getUser("jogador", true);
+    if (interaction.options.getSubcommand() === "adicionar") {
+      grantNarratorPermission(db, guildId, interaction.user.id, target.id, "*", "*");
+      await reply(interaction, `${target.username} agora é narrador e possui acesso administrativo completo.`);
+    } else {
+      db.prepare("DELETE FROM narrator_grants WHERE guild_id = ? AND user_id = ?").run(guildId, target.id);
+      audit(db, guildId, interaction.user.id, "remove_narrator", "narrator", target.id);
+      await reply(interaction, `${target.username} deixou de ser narrador.`);
+    }
   },
 
   saldo: async (interaction, db) => {
