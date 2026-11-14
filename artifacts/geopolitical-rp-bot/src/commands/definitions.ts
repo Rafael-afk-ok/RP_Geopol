@@ -363,10 +363,10 @@ export const commandBuilders = [
       .addNumberOption((option) => option.setName("saldo").setDescription("Novo saldo").setRequired(true))
       .addStringOption((option) => option.setName("motivo").setDescription("Motivo").setRequired(true).setMaxLength(200))),
 
-  new SlashCommandBuilder().setName("rendimento").setDescription("Registra um rendimento ou despesa anual (narradores)")
-    .addSubcommand((subcommand) => subcommand.setName("adicionar").setDescription("Adiciona um lançamento anual positivo ou negativo")
+  new SlashCommandBuilder().setName("rendimento").setDescription("Registra imediatamente uma receita ou despesa (narradores)")
+    .addSubcommand((subcommand) => subcommand.setName("adicionar").setDescription("Registra um valor positivo ou negativo no exercício atual")
       .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
-      .addNumberOption((option) => option.setName("saldo").setDescription("Valor positivo ou negativo").setRequired(true))
+      .addNumberOption((option) => option.setName("valor").setDescription("Valor positivo ou negativo").setRequired(true))
       .addStringOption((option) => option.setName("motivo").setDescription("Motivo obrigatório").setRequired(true).setMaxLength(200))),
 
   new SlashCommandBuilder().setName("ranking").setDescription("Classificações nacionais")
