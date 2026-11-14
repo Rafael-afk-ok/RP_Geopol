@@ -352,6 +352,7 @@ const handlers: Record<string, Handler> = {
       return;
     }
     if (subcommand === "lancar") {
+      requireNarratorPermission(db, guildId, interaction.user.id, "economy", "edit");
       const settings = db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = ?").get(guildId) as
         | { current_year: number }
         | undefined;
