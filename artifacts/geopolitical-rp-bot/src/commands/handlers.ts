@@ -1,6 +1,7 @@
 import {
   EmbedBuilder,
   MessageFlags,
+  PermissionFlagsBits,
   type ChatInputCommandInteraction,
 } from "discord.js";
 import type Database from "better-sqlite3";
@@ -88,7 +89,13 @@ const handlers: Record<string, Handler> = {
     const subcommand = interaction.options.getSubcommand();
     if (subcommand === "principal") {
       assertDomain(interaction.guild, "Servidor não encontrado.");
-      bootstrapMainNarrator(db, guildId, interaction.user.id, interaction.guild.ownerId);
+      bootstrapMainNarrator(
+        db,
+        guildId,
+        interaction.user.id,
+        interaction.guild.ownerId,
+        interaction.memberPermissions?.has(PermissionFlagsBits.Administrator) ?? false,
+      );
       await reply(interaction, "Narrador principal configurado. Agora você pode criar países e delegar permissões.");
       return;
     }
