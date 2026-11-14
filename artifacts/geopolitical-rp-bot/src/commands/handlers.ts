@@ -668,7 +668,6 @@ const handlers: Record<string, Handler> = {
 
   ano: async (interaction, db) => {
     const guildId = id(interaction);
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     if (interaction.options.getSubcommand() === "avancar") {
       const result = processAnnualTurn(db, guildId, interaction.user.id, interaction.id);
       await interaction.editReply({
