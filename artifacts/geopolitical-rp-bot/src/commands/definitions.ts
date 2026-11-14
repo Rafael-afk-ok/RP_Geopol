@@ -344,6 +344,34 @@ export const commandBuilders = [
     .addSubcommand((subcommand) => subcommand.setName("auditoria").setDescription("Lista alterações administrativas recentes")
       .addIntegerOption((option) => option.setName("pagina").setDescription("Página do histórico").setRequired(false).setMinValue(1))),
 
+  new SlashCommandBuilder().setName("saldo").setDescription("Abre o painel financeiro do seu país")
+    .addStringOption((option) => option.setName("pais").setDescription("País (necessário se você controla mais de um)").setRequired(false).setMaxLength(80)),
+
+  new SlashCommandBuilder().setName("gastar").setDescription("Registra um gasto imediato do seu país")
+    .addNumberOption((option) => option.setName("valor").setDescription("Valor gasto").setRequired(true).setMinValue(0.01))
+    .addStringOption((option) => option.setName("motivo").setDescription("Motivo do gasto").setRequired(true).setMaxLength(200))
+    .addStringOption((option) => option.setName("pais").setDescription("País (necessário se você controla mais de um)").setRequired(false).setMaxLength(80)),
+
+  new SlashCommandBuilder().setName("dinheiro").setDescription("Administração do saldo (narradores)")
+    .addSubcommand((subcommand) => subcommand.setName("adicionar").setDescription("Adiciona dinheiro ao país")
+      .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
+      .addNumberOption((option) => option.setName("valor").setDescription("Valor positivo").setRequired(true).setMinValue(0.01))
+      .addStringOption((option) => option.setName("motivo").setDescription("Motivo").setRequired(true).setMaxLength(200)))
+    .addSubcommand((subcommand) => subcommand.setName("remover").setDescription("Remove dinheiro do país")
+      .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
+      .addNumberOption((option) => option.setName("valor").setDescription("Valor positivo").setRequired(true).setMinValue(0.01))
+      .addStringOption((option) => option.setName("motivo").setDescription("Motivo").setRequired(true).setMaxLength(200)))
+    .addSubcommand((subcommand) => subcommand.setName("definir").setDescription("Define o saldo exato do país")
+      .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
+      .addNumberOption((option) => option.setName("saldo").setDescription("Novo saldo").setRequired(true))
+      .addStringOption((option) => option.setName("motivo").setDescription("Motivo").setRequired(true).setMaxLength(200))),
+
+  new SlashCommandBuilder().setName("rendimento").setDescription("Registra um rendimento ou despesa anual (narradores)")
+    .addSubcommand((subcommand) => subcommand.setName("adicionar").setDescription("Adiciona um lançamento anual positivo ou negativo")
+      .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
+      .addNumberOption((option) => option.setName("saldo").setDescription("Valor positivo ou negativo").setRequired(true))
+      .addStringOption((option) => option.setName("motivo").setDescription("Motivo obrigatório").setRequired(true).setMaxLength(200))),
+
   new SlashCommandBuilder().setName("ajuda").setDescription("Lista comandos e primeiros passos"),
   new SlashCommandBuilder().setName("ping").setDescription("Verifica se o bot está respondendo"),
 ].map((builder) => builder.toJSON());
