@@ -43,12 +43,13 @@ export function bootstrapMainNarrator(
   guildId: string,
   actorId: string,
   guildOwnerId: string,
+  actorIsAdministrator = false,
 ): void {
   ensureGuildSettings(db, guildId);
   const configuredOwner = process.env.DISCORD_OWNER_ID;
   assertDomain(
-    actorId === (configuredOwner || guildOwnerId),
-    "Somente o proprietário do servidor pode configurar o narrador principal.",
+    (actorId === guildOwnerId || actorId === configuredOwner || actorIsAdministrator),
+    "Somente o proprietário ou um administrador do servidor pode configurar o narrador principal.",
     "BOOTSTRAP_DENIED",
   );
   const current = db.prepare("SELECT main_narrator_id FROM guild_settings WHERE guild_id = ?").get(guildId) as
