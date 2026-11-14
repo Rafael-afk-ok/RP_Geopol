@@ -210,7 +210,7 @@ const handlers: Record<string, Handler> = {
       const ranks = db.prepare(`SELECT
         (SELECT COUNT(*) + 1 FROM countries x WHERE x.guild_id = ? AND x.status = 'active' AND x.treasury > c.treasury) AS economy_rank,
         (SELECT COUNT(*) + 1 FROM countries x WHERE x.guild_id = ? AND x.status = 'active' AND x.population > c.population) AS population_rank,
-        (SELECT COUNT(*) + 1 FROM countries x JOIN country_production p ON p.country_id = x.id JOIN items i ON i.id = p.item_id WHERE x.guild_id = ? AND x.status = 'active' GROUP BY x.id HAVING SUM(p.annual_production * i.production_cost) > ?) AS production_rank
+        (SELECT COUNT(*) + 1 FROM (SELECT x.id FROM countries x LEFT JOIN country_production p ON p.country_id = x.id LEFT JOIN items i ON i.id = p.item_id WHERE x.guild_id = ? AND x.status = 'active' GROUP BY x.id HAVING COALESCE(SUM(p.annual_production * i.production_cost), 0) > ?)) AS production_rank
         FROM countries c WHERE c.id = ?`).get(guildId, guildId, guildId, production.value, countryId) as { economy_rank: number; population_rank: number; production_rank: number | null };
       const equipment = db.prepare("SELECT COALESCE(SUM(assigned_soldiers), 0) AS total FROM army_equipment_assignments WHERE country_id = ?").get(countryId) as { total: number };
       const embed = new EmbedBuilder().setTitle(`Visão geral nacional · ${country.name}`).setDescription(`**Ano ${settings.current_year}**`).addFields(
@@ -1008,18 +1008,28 @@ const handlers: Record<string, Handler> = {
 
   ajuda: async (interaction) => {
     const embed = new EmbedBuilder()
-      .setTitle("Bot de RP Geopolítico")
-      .setDescription("Inicie com `/configurar principal`. Configure a moeda e crie cada país com seu cargo Discord. Quem possui o cargo é associado automaticamente; ao perder o cargo, perde o acesso automático. Jogadores controlam seus próprios países. O Narrador Supremo nomeia narradores com `/narrador adicionar`; narradores têm acesso administrativo completo.")
+      .setTitle("Manual do RP Geopolítico · Começar")
+      .setDescription("O bot administra países, economia, inventário, produção e turnos anuais. Os jogadores controlam os países associados aos seus cargos. Use os botões para consultar cada sistema.")
       .addFields(
-        { name: "Países", value: "`/pais criar` · `/pais listar` · `/pais ver` · `/jogador`" },
-        { name: "Finanças", value: "`/saldo` · `/gastar` · `/transferir` · `/rendimento adicionar` · `/dinheiro`" },
-        { name: "Inventário e produção", value: "`/inventario painel` · `/inventario criar-item` · `/inventario producao-anual` · `/produzir`" },
-        { name: "Rankings e turnos", value: "`/ranking` · `/ano avancar` · `/ano desfazer` · `/historico`" },
-        { name: "Mercado e população", value: "`/mercado` · `/populacao` · `/indicador`" },
+        { name: "1. Configuração inicial", value: "`/configurar principal` → `/configurar moeda` → `/pais criar` → `/jogador associar`. O Narrador Supremo pode nomear narradores com `/narrador adicionar`." },
+        { name: "2. Rotina do jogador", value: "`/pais geral` → `/saldo` → `/inventario painel` → produzir, gastar e negociar. Consulte o estado do país antes de cada fechamento anual." },
+        { name: "3. Rotina do narrador", value: "Configure população, efetivo, consumo, produção e acordos; depois execute `/ano avancar`. Use `/ano desfazer` somente se não houve alterações posteriores." },
       )
-      .setFooter({ text: "Desfazer um ano é bloqueado se o estado do jogo tiver mudado depois dele." })
+      .setFooter({ text: "Os comandos administrativos são privados; manual, rankings e painel de negociações são públicos." })
       .setColor(0x315e56);
-    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+    const row1 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId("ajuda:economia").setLabel("Economia").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId("ajuda:inventario").setLabel("Inventário").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId("ajuda:populacao").setLabel("População").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId("ajuda:exercito").setLabel("Exército").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId("ajuda:negociacoes").setLabel("Negociações").setStyle(ButtonStyle.Secondary),
+    );
+    const row2 = new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder().setCustomId("ajuda:exemplo").setLabel("Exemplo de turno").setStyle(ButtonStyle.Primary),
+      new ButtonBuilder().setCustomId("ajuda:narrador").setLabel("Narrador").setStyle(ButtonStyle.Secondary),
+      new ButtonBuilder().setCustomId("ajuda:inicio").setLabel("Início").setStyle(ButtonStyle.Secondary),
+    );
+    await interaction.editReply({ embeds: [embed], components: [row1, row2], allowedMentions: { parse: [] } });
   },
 
   ping: async (interaction) => {
