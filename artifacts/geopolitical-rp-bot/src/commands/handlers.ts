@@ -775,6 +775,58 @@ const handlers: Record<string, Handler> = {
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
+  ranking: async (interaction, db) => {
+    const guildId = id(interaction);
+    const type = interaction.options.getString("tipo", true);
+    const settings = db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = ?").get(guildId) as { current_year: number } | undefined;
+    const year = settings?.current_year ?? 0;
+    let rows: Array<{ name: string; value: number; previous?: number }>;
+    let title: string;
+    let suffix = "";
+    if (type === "economy") {
+      title = "Ranking econômico · saldo do tesouro";
+      rows = db.prepare("SELECT name, treasury AS value FROM countries WHERE guild_id = ? AND status = 'active' ORDER BY treasury DESC, name COLLATE NOCASE LIMIT 10")
+        .all(guildId) as typeof rows;
+    } else if (type === "population") {
+      title = "Ranking populacional";
+      rows = db.prepare("SELECT name, population AS value FROM countries WHERE guild_id = ? AND status = 'active' ORDER BY population DESC, name COLLATE NOCASE LIMIT 10")
+        .all(guildId) as typeof rows;
+      suffix = " habitantes";
+    } else if (type === "production") {
+      title = "Ranking industrial · produção anual";
+      rows = db.prepare(
+        "SELECT c.name, COALESCE(SUM(p.annual_production), 0) AS value FROM countries c LEFT JOIN country_production p ON p.country_id = c.id WHERE c.guild_id = ? AND c.status = 'active' GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10",
+      ).all(guildId) as typeof rows;
+      suffix = " unidades/ano";
+    } else if (type === "stock") {
+      title = "Ranking de estoques nacionais";
+      rows = db.prepare(
+        "SELECT c.name, COALESCE(SUM(v.quantity), 0) AS value FROM countries c LEFT JOIN country_inventory v ON v.country_id = c.id WHERE c.guild_id = ? AND c.status = 'active' GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10",
+      ).all(guildId) as typeof rows;
+      suffix = " unidades";
+    } else {
+      title = `Ranking de crescimento econômico · ano ${year}`;
+      rows = db.prepare(
+        `SELECT c.name,
+          COALESCE(SUM(CASE WHEN l.year = ? THEN l.amount ELSE 0 END), 0) AS value,
+          COALESCE(SUM(CASE WHEN l.year = ? THEN l.amount ELSE 0 END), 0) AS previous
+         FROM countries c LEFT JOIN financial_ledger l ON l.country_id = c.id
+         WHERE c.guild_id = ? AND c.status = 'active'
+         GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10`,
+      ).all(year, year - 1, guildId) as typeof rows;
+    }
+    const lines = rows.map((row, index) => {
+      const value = type === "growth" && row.previous !== undefined && row.previous > 0
+        ? `${(((row.value - row.previous) / row.previous) * 100).toFixed(1).replace(".", ",")}%`
+        : type === "growth" ? "—" : `${formatNumber(row.value, 2)}${suffix}`;
+      return `**${index + 1}. ${row.name}** — ${value}`;
+    });
+    const embed = new EmbedBuilder().setTitle(title).setDescription(lines.length ? lines.join("\n") : "Nenhum país cadastrado.")
+      .setFooter({ text: type === "growth" ? "Variação do resultado financeiro líquido em relação ao ano anterior; — = base anterior nula/negativa." : "Top 10 países · valores atuais" })
+      .setColor(0x315e56);
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+  },
+
   narrador: async (interaction, db) => {
     const guildId = id(interaction);
     assertDomain(isMainNarrator(db, guildId, interaction.user.id), "Somente o Narrador Supremo pode nomear ou remover narradores.");
