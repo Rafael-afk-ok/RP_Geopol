@@ -50,9 +50,11 @@ test("Discord role membership is added and revoked when the role changes", () =>
   try {
     const countryId = insertCountry(db, { roleId: "nation-role" });
     assert.equal(syncRoleMemberships(db, "guild", "player", ["nation-role"]), 1);
+    assert.equal(syncRoleMemberships(db, "guild", "other-player", ["nation-role"]), 1);
     assert.ok(db.prepare("SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = 'player'").get(countryId));
     syncRoleMemberships(db, "guild", "player", []);
     assert.equal(db.prepare("SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = 'player'").get(countryId), undefined);
+    assert.ok(db.prepare("SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = 'other-player'").get(countryId));
   } finally {
     closeTestDatabase(db);
   }
