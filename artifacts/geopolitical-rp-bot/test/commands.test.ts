@@ -41,6 +41,7 @@ test("all requested slash-command categories are registered with unique valid na
     "ping",
     "militar",
     "comercio",
+    "dados",
   ];
   assert.deepEqual(names, expected);
   assert.equal(new Set(names).size, names.length);
@@ -54,6 +55,9 @@ test("all requested slash-command categories are registered with unique valid na
   assert.ok(personalOptions.every((option) => option.required === false));
   const economyCommand = commandBuilders.find((command) => command.name === "economia");
   assert.ok(!commandOptions(economyCommand?.options).some((option) => option.name === "inflacao-automatica"));
+
+  const dataCommand = commandBuilders.find((command) => command.name === "dados");
+  assert.deepEqual(commandOptions(dataCommand?.options).map((option) => option.name), ["zerar-pais", "zerar-servidor"]);
 
   const countryCommand = commandBuilders.find((command) => command.name === "pais");
   const countrySubcommands = countryCommand?.options?.map((option) => option.name);
