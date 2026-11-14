@@ -96,3 +96,58 @@ test("annual processing rolls back when population growth exceeds safe numeric l
     closeTestDatabase(db);
   }
 });
+
+
+test("global market prices return toward base without purchases and slow below base", () => {
+  const db = createTestDatabase();
+  try {
+    const itemId = Number(db.prepare(
+      "INSERT INTO items (guild_id, name, category, global_tradeable, created_by) VALUES ('guild', 'Iron', 'common', 1, 'narrator')",
+    ).run().lastInsertRowid);
+    db.prepare(
+      "INSERT INTO global_stock (guild_id, item_id, quantity, current_price, base_price, min_price, max_price) VALUES ('guild', ?, 100, 150, 100, 50, 500)",
+    ).run(itemId);
+    db.prepare("UPDATE guild_settings SET global_market_price_decay_percent = 20 WHERE guild_id = 'guild'").run();
+
+    processAnnualTurn(db, "guild", "narrator", "market-no-buy-1");
+    const first = (db.prepare("SELECT current_price FROM global_stock WHERE item_id = ?").get(itemId) as { current_price: number }).current_price;
+    assert.equal(first, 140);
+
+    processAnnualTurn(db, "guild", "narrator", "market-no-buy-2");
+    const second = (db.prepare("SELECT current_price FROM global_stock WHERE item_id = ?").get(itemId) as { current_price: number }).current_price;
+    assert.equal(second, 132);
+
+    db.prepare("UPDATE global_stock SET current_price = 100 WHERE item_id = ?").run(itemId);
+    processAnnualTurn(db, "guild", "narrator", "market-below-base");
+    const belowBase = (db.prepare("SELECT current_price FROM global_stock WHERE item_id = ?").get(itemId) as { current_price: number }).current_price;
+    assert.equal(belowBase, 90);
+    assert.ok(belowBase > 50);
+  } finally {
+    closeTestDatabase(db);
+  }
+});
+
+test("global market annual price increase is capped even after an oversized purchase", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { name: "Buyer", treasury: 100000 });
+    const itemId = Number(db.prepare(
+      "INSERT INTO items (guild_id, name, category, global_tradeable, created_by) VALUES ('guild', 'Iron', 'common', 1, 'narrator')",
+    ).run().lastInsertRowid);
+    db.prepare(
+      "INSERT INTO global_stock (guild_id, item_id, quantity, current_price, base_price, min_price, max_price) VALUES ('guild', ?, 100, 100, 80, 10, 1000)",
+    ).run(itemId);
+    db.prepare("UPDATE guild_settings SET global_market_price_sensitivity = 5, global_market_max_annual_increase_percent = 10 WHERE guild_id = 'guild'").run();
+    db.prepare(
+      `INSERT INTO global_market_trades
+       (id, guild_id, item_id, country_id, direction, quantity, unit_price, total, year, actor_id)
+       VALUES ('large-buy', 'guild', ?, ?, 'buy', 1000, 100, 100000, 0, 'player')`,
+    ).run(itemId, countryId);
+
+    processAnnualTurn(db, "guild", "narrator", "market-price-cap");
+    const price = (db.prepare("SELECT current_price FROM global_stock WHERE item_id = ?").get(itemId) as { current_price: number }).current_price;
+    assert.equal(price, 110);
+  } finally {
+    closeTestDatabase(db);
+  }
+});
