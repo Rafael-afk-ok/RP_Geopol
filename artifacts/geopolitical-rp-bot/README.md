@@ -27,7 +27,7 @@ pnpm --filter @workspace/geopolitical-rp-bot run dev
 
 Ao conectar, o bot registra seus comandos de barra automaticamente. Por padrão, o registro é global e pode demorar para aparecer no Discord. Para atualizações imediatas durante configuração, defina `DISCORD_GUILD_ID` com o ID do servidor: os comandos serão registrados apenas nele.
 
-O primeiro passo dentro do servidor é executar `/configurar principal`. Apenas o proprietário do servidor pode reivindicar essa configuração inicial. Se `DISCORD_OWNER_ID` estiver definido, esse usuário será o único autorizado a fazê-la.
+O primeiro passo dentro do servidor é executar `/configurar principal`. O proprietário ou um administrador do servidor pode reivindicar essa configuração inicial. Se `DISCORD_OWNER_ID` estiver definido, esse usuário será o único autorizado a fazê-la.
 
 ## Banco de dados
 
@@ -51,21 +51,14 @@ Os testes cobrem limites de dívida e transferências atômicas, permissões de 
 
 ## Sistemas
 
-- `/pais` e `/jogador`: países associados a cargos do Discord; a associação é criada quando o jogador usa o bot. Narradores podem criar, editar e arquivar países; países e indicadores ficam privados por padrão.
-- `/permissao`: concessões de narrador por sistema/ação e permissões individuais por país para ações autorizadas. Narradores subordinados só delegam ações que possuem.
-- `/economia`, `/transferir`: moeda compartilhada e configurável por servidor, limites de saldo e dívida, renda anual, lançamentos recorrentes/pontuais, emissão voluntária e extrato auditável.
-- `/inventario` e `/produzir`: itens militares, bens comuns e categorias personalizadas, com propriedades, custos de produção, receitas, despesas, manutenção anual, materiais e filas. Materiais devolvidos ao cancelar são calculados pela receita usada ao iniciar o pedido.
-- `/mercado`: ofertas entre países com estoque reservado e compras parciais; mercado global com preços dentro dos limites configurados e histórico de transações e preços.
-- `/populacao`: crescimento, necessidade alimentar, déficit e contador de revolta; o bot não decide consequências políticas.
-- `/ano avancar` e `/ano desfazer`: processamento em uma transação, idempotência por interação Discord, snapshot antes/depois e reversões no livro-razão. A reversão é bloqueada se o estado do jogo mudou após o processamento.
-- `/indicador` e `/historico`: indicadores tipados, extratos, auditoria e processamento anual.
-
-## Permissões iniciais
-
-1. O proprietário do servidor executa `/configurar principal`.
-2. O narrador cria a moeda, configura as regras, cria itens e categorias personalizadas de itens e indicadores.
-3. O narrador cria os países vinculando cargos Discord e associa jogadores sem o cargo, quando necessário.
-4. O narrador concede permissões de narrador e de país antes de autorizar alterações por jogadores.
-5. O narrador configura a renda anual, limites, produção, alimentação e estoque global antes de usar `/ano avancar`.
+- **Países e cargos:** `/pais criar` vincula um país a um cargo Discord. Quem possui o cargo recebe acesso automaticamente ao usar o bot; a perda do cargo revoga essa associação automática. Os comandos recebem nomes de países, nunca IDs internos.
+- **Hierarquia:** o Narrador Supremo é definido em `/configurar principal` e nomeia/remove narradores com `/narrador adicionar` e `/narrador remover`. Todo narrador nomeado tem acesso administrativo completo. Jogadores têm controle integral dos países aos quais estão associados.
+- **Finanças:** `/saldo` mostra saldo, ganhos, gastos, resultado anual e comparação percentual. O botão de detalhamento lista as movimentações e justificativas. `/gastar` registra um gasto imediato do jogador. `/rendimento adicionar` registra imediatamente um valor positivo ou negativo, apenas para narradores. `/dinheiro adicionar|remover|definir` administra o saldo. `/economia` configura renda-base, limites e inflação; `/transferir` movimenta dinheiro entre países.
+- **Inventário e produção:** `/inventario painel` abre três categorias navegáveis por botões: Recursos naturais, Indústria e bens, Militar. O catálogo inicial possui 18 produtos (seis por categoria). Cada produto mostra estoque, produção anual, consumo anual e variação líquida. Narradores podem criar categorias e produtos personalizados. Use nomes de produtos nos comandos de estoque e produção.
+- **Rankings:** `/ranking` apresenta saldo do tesouro, população, valor estimado da produção anual, valor estimado dos estoques e variação do resultado financeiro líquido.
+- **Mercado:** `/mercado` oferece negociações entre países e mercado global, com estoque reservado, compras parciais, preços limitados e histórico.
+- **População:** `/populacao` configura crescimento, necessidade alimentar, déficit e contador de revolta; o bot não decide consequências políticas.
+- **Turnos e auditoria:** `/ano avancar` e `/ano desfazer` processam/revertem o exercício com transações atômicas e histórico. `/indicador` e `/historico` mantêm indicadores e auditoria.
+- **Ajuda:** use `/ajuda` dentro do servidor para o resumo dos comandos.
 
 O Gateway usa somente `DISCORD_BOT_TOKEN`; a conexão Discord OAuth do projeto não substitui o token do usuário de bot.
