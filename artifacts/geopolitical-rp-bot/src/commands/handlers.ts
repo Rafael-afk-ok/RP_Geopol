@@ -808,17 +808,17 @@ const handlers: Record<string, Handler> = {
         .all(guildId) as typeof rows;
       suffix = " habitantes";
     } else if (type === "production") {
-      title = "Ranking industrial · produção anual";
+      title = "Ranking industrial · valor da produção anual";
       rows = db.prepare(
-        "SELECT c.name, COALESCE(SUM(p.annual_production), 0) AS value FROM countries c LEFT JOIN country_production p ON p.country_id = c.id WHERE c.guild_id = ? AND c.status = 'active' GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10",
+        "SELECT c.name, COALESCE(SUM(p.annual_production * i.production_cost), 0) AS value FROM countries c LEFT JOIN country_production p ON p.country_id = c.id LEFT JOIN items i ON i.id = p.item_id WHERE c.guild_id = ? AND c.status = 'active' GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10",
       ).all(guildId) as typeof rows;
-      suffix = " unidades/ano";
+      suffix = " (valor estimado)";
     } else if (type === "stock") {
-      title = "Ranking de estoques nacionais";
+      title = "Ranking de estoques · valor estimado";
       rows = db.prepare(
-        "SELECT c.name, COALESCE(SUM(v.quantity), 0) AS value FROM countries c LEFT JOIN country_inventory v ON v.country_id = c.id WHERE c.guild_id = ? AND c.status = 'active' GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10",
+        "SELECT c.name, COALESCE(SUM(v.quantity * i.production_cost), 0) AS value FROM countries c LEFT JOIN country_inventory v ON v.country_id = c.id LEFT JOIN items i ON i.id = v.item_id WHERE c.guild_id = ? AND c.status = 'active' GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10",
       ).all(guildId) as typeof rows;
-      suffix = " unidades";
+      suffix = " (valor estimado)";
     } else {
       title = `Ranking de crescimento econômico · ano ${year}`;
       rows = db.prepare(
