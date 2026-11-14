@@ -149,7 +149,7 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, `Financiamento inflacionário automático ${automaticInflation ? "ativado" : "desativado"} para **${country.name}**.`);
       return;
     }
-    await reply(interaction, "**Suas configurações por país**\\n" + countries.map((country) =>
+    await reply(interaction, "**Suas configurações por país**\n" + countries.map((country) =>
       `**${country.name}** — inflação automática: ${country.automatic_inflation_enabled ? "ativada" : "desativada"}`,
     ).join("\n"));
   },
