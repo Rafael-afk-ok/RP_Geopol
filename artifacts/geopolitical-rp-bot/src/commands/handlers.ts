@@ -1,4 +1,7 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
   PermissionFlagsBits,
   type ChatInputCommandInteraction,
@@ -7,7 +10,7 @@ import type Database from "better-sqlite3";
 import { assertDomain, DomainError } from "../domain/errors.js";
 import { audit } from "../services/audit.js";
 import { processAnnualTurn, undoAnnualTurn, listAnnualRuns } from "../services/annual.js";
-import { addEconomyEntry, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
+import { addEconomyEntry, adjustBalance, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
 import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
 import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, setCountryProduction, setGlobalStock } from "../services/inventory.js";
@@ -75,6 +78,21 @@ function getCountryForView(db: Database.Database, guildId: string, userId: strin
     };
   }
   return getAccessibleCountry(db, guildId, userId, countryId);
+}
+
+function resolveCommandCountry(db: Database.Database, guildId: string, userId: string, requestedName?: string) {
+  if (requestedName) {
+    const country = db.prepare("SELECT id, name, treasury FROM countries WHERE guild_id = ? AND status = 'active' AND lower(name) = lower(?)").get(guildId, requestedName.trim()) as { id: number; name: string; treasury: number } | undefined;
+    assertDomain(country, "País não encontrado.");
+    const isNarrator = hasNarratorPermission(db, guildId, userId, "countries", "read");
+    const membership = db.prepare("SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = ?").get(country.id, userId);
+    assertDomain(isNarrator || membership, "Você não está associado a este país.");
+    return country;
+  }
+  const rows = db.prepare("SELECT c.id, c.name, c.treasury FROM countries c JOIN country_memberships m ON m.country_id = c.id WHERE c.guild_id = ? AND c.status = 'active' AND m.user_id = ? ORDER BY c.name").all(guildId, userId) as Array<{ id: number; name: string; treasury: number }>;
+  assertDomain(rows.length > 0, "Nenhum país associado à sua conta. Informe o nome do país se você for narrador.");
+  assertDomain(rows.length === 1, "Você controla mais de um país. Informe o nome em pais.");
+  return rows[0]!;
 }
 
 function formatNumber(value: number, decimals: number): string {
@@ -729,6 +747,64 @@ const handlers: Record<string, Handler> = {
         : "Nenhum lançamento financeiro.")
       .setColor(0x315e56);
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+  },
+
+  saldo: async (interaction, db) => {
+    const guildId = id(interaction);
+    const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais") ?? undefined);
+    const settings = db.prepare("SELECT current_year, currency_symbol FROM guild_settings WHERE guild_id = ?").get(guildId) as { current_year: number; currency_symbol: string } | undefined;
+    const year = settings?.current_year ?? 0;
+    const totals = (targetYear: number) => db.prepare("SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS gains, COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0) AS expenses FROM financial_ledger WHERE guild_id = ? AND country_id = ? AND year = ?").get(guildId, country.id, targetYear) as { gains: number; expenses: number };
+    const current = totals(year), previous = totals(year - 1);
+    const net = current.gains - current.expenses, previousNet = previous.gains - previous.expenses;
+    const comparison = previousNet > 0 ? `${net >= previousNet ? "+" : ""}${formatNumber(((net - previousNet) / previousNet) * 100, 1)}% em relação ao resultado do ano anterior` : "Comparação percentual indisponível (resultado anterior nulo ou negativo)";
+    const symbol = settings?.currency_symbol ?? "";
+    const embed = new EmbedBuilder().setTitle(`Tesouro nacional · ${country.name}`).setDescription(`**Saldo atual**\n# ${symbol} ${formatNumber(country.treasury, 2)}`).addFields(
+      { name: "Ganhos do ano", value: `+ ${symbol} ${formatNumber(current.gains, 2)}`, inline: true },
+      { name: "Gastos do ano", value: `− ${symbol} ${formatNumber(current.expenses, 2)}`, inline: true },
+      { name: "Resultado anual", value: `${net >= 0 ? "+" : "−"} ${symbol} ${formatNumber(Math.abs(net), 2)}`, inline: true },
+      { name: "Comparação", value: comparison },
+    ).setFooter({ text: `Exercício ${year} · Detalhamento disponível pelo botão abaixo` }).setColor(net >= 0 ? 0x27865b : 0xa94442);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`saldo_detalhes:${country.id}:${year}`).setLabel("Detalhamento do ano").setStyle(ButtonStyle.Secondary));
+    await interaction.editReply({ embeds: [embed], components: [row], allowedMentions: { parse: [] } });
+  },
+
+  gastar: async (interaction, db) => {
+    const guildId = id(interaction);
+    const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais") ?? undefined);
+    requireCountryOrNarratorPermission(db, guildId, country.id, interaction.user.id, "economy", "edit");
+    const amount = interaction.options.getNumber("valor", true), reason = interaction.options.getString("motivo", true);
+    adjustBalance(db, country.id, guildId, interaction.user.id, -amount, "player_spend", reason);
+    await reply(interaction, `Gasto registrado para ${country.name}: − ${formatNumber(amount, 2)}. Motivo: ${reason}`);
+  },
+
+  dinheiro: async (interaction, db) => {
+    const guildId = id(interaction);
+    requireNarratorPermission(db, guildId, interaction.user.id, "economy", "configure");
+    const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais", true));
+    const subcommand = interaction.options.getSubcommand(), reason = interaction.options.getString("motivo", true);
+    if (subcommand === "definir") {
+      const target = interaction.options.getNumber("saldo", true), delta = target - country.treasury;
+      assertDomain(Math.abs(delta) > 1e-9, "O país já possui esse saldo.");
+      adjustBalance(db, country.id, guildId, interaction.user.id, delta, "admin_set_balance", reason);
+      await reply(interaction, `Saldo de ${country.name} definido para ${formatNumber(target, 2)}. Motivo: ${reason}`);
+      return;
+    }
+    const amount = interaction.options.getNumber("valor", true), delta = subcommand === "adicionar" ? amount : -amount;
+    adjustBalance(db, country.id, guildId, interaction.user.id, delta, `admin_${subcommand}`, reason);
+    await reply(interaction, `${subcommand === "adicionar" ? "Adicionados" : "Removidos"} ${formatNumber(amount, 2)} em ${country.name}. Motivo: ${reason}`);
+  },
+
+  rendimento: async (interaction, db) => {
+    const guildId = id(interaction);
+    requireNarratorPermission(db, guildId, interaction.user.id, "economy", "edit");
+    const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais", true));
+    const signedAmount = interaction.options.getNumber("saldo", true);
+    assertDomain(Number.isFinite(signedAmount) && signedAmount !== 0, "O rendimento precisa ser diferente de zero.");
+    const settings = db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = ?").get(guildId) as { current_year: number } | undefined;
+    const dueYear = (settings?.current_year ?? 0) + 1;
+    const entryId = addEconomyEntry(db, guildId, interaction.user.id, country.id, signedAmount > 0 ? "income" : "expense", Math.abs(signedAmount), interaction.options.getString("motivo", true), "recurring", dueYear, interaction.id);
+    await reply(interaction, `Rendimento ${signedAmount > 0 ? "positivo" : "negativo"} registrado para ${country.name} a partir do ano ${dueYear}. Referência #${entryId}.`);
   },
 
   ajuda: async (interaction) => {
