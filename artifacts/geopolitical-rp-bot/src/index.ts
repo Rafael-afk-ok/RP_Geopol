@@ -1,4 +1,7 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   Client,
   EmbedBuilder,
   Events,
@@ -30,6 +33,59 @@ client.once(Events.ClientReady, async (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isButton() && interaction.customId.startsWith("inventario_pagina:")) {
+    try {
+      const [, countryIdRaw, categoryKey] = interaction.customId.split(":");
+      const countryId = Number(countryIdRaw);
+      if (!interaction.guildId || !Number.isInteger(countryId)) return;
+      const allowed = hasNarratorPermission(db, interaction.guildId, interaction.user.id, "inventory", "read") ||
+        db.prepare("SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = ?").get(countryId, interaction.user.id) !== undefined;
+      if (!allowed) {
+        await interaction.reply({ content: "Você não tem acesso a este país.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const country = db.prepare("SELECT name FROM countries WHERE id = ? AND guild_id = ? AND status = 'active'").get(countryId, interaction.guildId) as { name: string } | undefined;
+      if (!country) {
+        await interaction.reply({ content: "País não encontrado.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const categoryName = categoryKey === "resources" ? "Recursos naturais" : categoryKey === "industry" ? "Indústria e bens" : categoryKey === "military" ? "Militar" : null;
+      if (!categoryName) {
+        await interaction.reply({ content: "Categoria inválida.", flags: MessageFlags.Ephemeral });
+        return;
+      }
+      const rows = db.prepare(
+        `SELECT i.name, COALESCE(v.quantity, 0) AS quantity,
+          COALESCE(p.annual_production, 0) AS annual_production,
+          COALESCE(p.annual_consumption, 0) AS annual_consumption,
+          json_extract(i.properties_json, '$.unit') AS unit
+         FROM items i
+         LEFT JOIN country_inventory v ON v.item_id = i.id AND v.country_id = ?
+         LEFT JOIN country_production p ON p.item_id = i.id AND p.country_id = ?
+         LEFT JOIN custom_item_categories cc ON cc.id = i.custom_category_id
+         WHERE i.guild_id = ? AND (
+           (i.category = 'military' AND ? = 'Militar') OR
+           (i.category <> 'military' AND COALESCE(cc.name, 'Indústria e bens') = ?)
+         )
+         ORDER BY i.name COLLATE NOCASE`,
+      ).all(countryId, countryId, interaction.guildId, categoryName, categoryName) as Array<{ name: string; quantity: number; annual_production: number; annual_consumption: number; unit: string | null }>;
+      const description = rows.length ? rows.map((row) => {
+        const net = row.annual_production - row.annual_consumption;
+        return `**${row.name}**\nEstoque: ${row.quantity.toLocaleString("pt-BR")} ${row.unit ?? ""} · Produção anual: ${row.annual_production.toLocaleString("pt-BR")} · Consumo anual: ${row.annual_consumption.toLocaleString("pt-BR")} · Variação: ${net >= 0 ? "+" : ""}${net.toLocaleString("pt-BR")}`;
+      }).join("\n\n").slice(0, 3900) : "Nenhum item nesta categoria.";
+      const embed = new EmbedBuilder().setTitle(`Inventário nacional · ${country.name}`).setDescription(description).setFooter({ text: `Categoria: ${categoryName}` }).setColor(0x315e56);
+      const row = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`inventario_pagina:${countryId}:resources`).setLabel("Recursos naturais").setStyle(categoryKey === "resources" ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`inventario_pagina:${countryId}:industry`).setLabel("Indústria e bens").setStyle(categoryKey === "industry" ? ButtonStyle.Primary : ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`inventario_pagina:${countryId}:military`).setLabel("Militar").setStyle(categoryKey === "military" ? ButtonStyle.Primary : ButtonStyle.Secondary),
+      );
+      await interaction.update({ embeds: [embed], components: [row], allowedMentions: { parse: [] } });
+    } catch (error) {
+      console.error("Falha ao abrir categoria do inventário", error);
+      if (!interaction.replied && !interaction.deferred) await interaction.reply({ content: "Não foi possível abrir esta categoria.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
+    }
+    return;
+  }
   if (interaction.isButton() && interaction.customId.startsWith("saldo_detalhes:")) {
     try {
       const [, countryIdRaw, yearRaw] = interaction.customId.split(":");
