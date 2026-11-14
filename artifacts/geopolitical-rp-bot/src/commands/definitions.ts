@@ -182,7 +182,7 @@ export const commandBuilders = [
         .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("produz").setDescription("Quantidade anual produzida").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("consome").setDescription("Quantidade anual consumida (exceto alimento)").setRequired(true).setMinValue(0))
-        .addNumberOption((option) => option.setName("exportar_percentual").setDescription("Percentual da produção anual destinado à exportação").setRequired(false).setMinValue(0).setMaxValue(100),
+        .addNumberOption((option) => option.setName("exportar_percentual").setDescription("Percentual da produção anual destinado à exportação").setRequired(false).setMinValue(0).setMaxValue(100)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("requisito").setDescription("Define material necessário para produzir um item")
