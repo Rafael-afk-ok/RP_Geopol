@@ -51,7 +51,7 @@ test("country membership grants full control only within that country", () => {
   try {
     const countryId = insertCountry(db);
     db.prepare(
-      "INSERT INTO country_memberships (country_id, user_id, permissions_json, created_by) VALUES (?, 'player', '{\\"read\\":true}', 'narrator')",
+      "INSERT INTO country_memberships (country_id, user_id, permissions_json, created_by) VALUES (?, 'player', '{}', 'narrator')",
     ).run(countryId);
     assert.doesNotThrow(() => requireCountryPermission(db, "guild", countryId, "player", "economy", "transfer"));
     assert.throws(
