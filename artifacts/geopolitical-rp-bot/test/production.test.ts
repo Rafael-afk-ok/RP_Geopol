@@ -124,3 +124,22 @@ test("craft is blocked when missing materials cannot be bought", () => {
     closeTestDatabase(db);
   }
 });
+
+
+test("narrator can disable fabrication for an item", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { name: "Restricted", treasury: 100 });
+    const itemId = Number(db.prepare(
+      "INSERT INTO items (guild_id, name, category, created_by) VALUES ('guild', 'Restricted item', 'military', 'narrator')",
+    ).run().lastInsertRowid);
+    db.prepare("UPDATE items SET production_enabled = 0 WHERE id = ?").run(itemId);
+    assert.throws(
+      () => startProduction(db, "guild", "narrator", countryId, itemId, 1),
+      /fabricação deste item foi desativada/,
+    );
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM production_orders").get() as { count: number }).count, 0);
+  } finally {
+    closeTestDatabase(db);
+  }
+});
