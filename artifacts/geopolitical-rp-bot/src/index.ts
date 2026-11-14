@@ -24,9 +24,7 @@ client.once(Events.ClientReady, async (readyClient) => {
     else await readyClient.application.commands.set(commandBuilders);
     console.info(`Bot conectado como ${readyClient.user.tag}; comandos registrados.`);
   } catch (error) {
-    console.error("Falha ao registrar comandos Discord", {
-      name: error instanceof Error ? error.name : "UnknownError",
-    });
+    console.error("Falha ao registrar comandos Discord:", error);
   }
 });
 
