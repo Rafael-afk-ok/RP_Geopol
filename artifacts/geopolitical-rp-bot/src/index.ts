@@ -150,7 +150,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
     const isPublicCommand = commandInteraction.commandName === "ajuda" ||
       commandInteraction.commandName === "ranking" ||
       (commandInteraction.commandName === "negociacao" && commandInteraction.options.getSubcommand() === "painel") ||
-      (commandInteraction.commandName === "pais" && commandInteraction.options.getSubcommand() === "geral");
+      (commandInteraction.commandName === "pais" && commandInteraction.options.getSubcommand() === "geral") ||
+      (commandInteraction.commandName === "mercado" && ["catalogo", "painel"].includes(commandInteraction.options.getSubcommand()));
     await commandInteraction.deferReply(isPublicCommand ? {} : { flags: MessageFlags.Ephemeral });
 
     if (!commandInteraction.guildId) {
