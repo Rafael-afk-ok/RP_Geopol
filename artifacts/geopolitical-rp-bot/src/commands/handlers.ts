@@ -807,7 +807,7 @@ const handlers: Record<string, Handler> = {
     if (interaction.options.getSubcommand() === "consultar") {
       const status = getMilitaryStatus(db, guildId, interaction.user.id, countryId);
       const equipment = status.equipment.length
-        ? status.equipment.map((row) => `**${row.name}:** ${formatNumber(row.assigned_soldiers, 0)} soldados · manutenção ${formatNumber(row.assigned_soldiers * row.annual_maintenance, 2)}/ano`).join("\\n")
+        ? status.equipment.map((row) => `**${row.name}:** ${formatNumber(row.assigned_soldiers, 0)} soldados · manutenção ${formatNumber(row.assigned_soldiers * row.annual_maintenance, 2)}/ano`).join("\n")
         : "Nenhum equipamento atribuído.";
       const embed = new EmbedBuilder().setTitle(`Prontidão militar · ${status.name}`)
         .addFields(
@@ -877,7 +877,7 @@ const handlers: Record<string, Handler> = {
       requireCountryOrNarratorPermission(db, guildId, countryId, interaction.user.id, "market", "read");
       const rows = listSupplierDependencies(db, guildId, countryId);
       const description = rows.length
-        ? rows.map((row) => `**${row.item}** · ${row.supplier}: ${formatNumber(row.share * 100, 1)}% (${formatNumber(row.quantity, 2)} unidades em 5 anos)${row.share >= 0.5 ? " · DEPENDÊNCIA ALTA" : ""}`).join("\\n").slice(0, 3900)
+        ? rows.map((row) => `**${row.item}** · ${row.supplier}: ${formatNumber(row.share * 100, 1)}% (${formatNumber(row.quantity, 2)} unidades em 5 anos)${row.share >= 0.5 ? " · DEPENDÊNCIA ALTA" : ""}`).join("\n").slice(0, 3900)
         : "Não há histórico suficiente de contratos internacionais executados nos últimos cinco anos.";
       const embed = new EmbedBuilder().setTitle("Dependência de fornecedores").setDescription(description).setFooter({ text: "Participação calculada pelo volume importado em contratos internacionais nos últimos cinco anos." }).setColor(0x315e56);
       await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
@@ -887,8 +887,8 @@ const handlers: Record<string, Handler> = {
     const restrictions = listTradeRestrictions(db, guildId);
     const embed = new EmbedBuilder().setTitle("Comércio internacional")
       .addFields(
-        { name: "Contratos", value: contracts.length ? contracts.map((row) => `\`${row.id.slice(0, 8)}\` · ${row.seller} → ${row.buyer} · ${row.item} × ${formatNumber(row.quantity_per_year, 2)}/ano · ${row.status === "pending" ? "aguardando aceite" : row.remaining_years === 0 ? "indefinido" : `${row.remaining_years} ano(s)`}\n${row.last_result}`).join("\\n").slice(0, 1000) : "Nenhum contrato ativo ou pendente." },
-        { name: "Embargos e bloqueios", value: restrictions.length ? restrictions.map((row) => `\`${row.id.slice(0, 8)}\` · ${row.imposer} → ${row.target} · ${row.kind === "embargo" ? "embargo" : "bloqueio"}${row.item ? " · " + row.item : " · geral"}`).join("\\n").slice(0, 1000) : "Nenhuma restrição ativa." },
+        { name: "Contratos", value: contracts.length ? contracts.map((row) => `\`${row.id.slice(0, 8)}\` · ${row.seller} → ${row.buyer} · ${row.item} × ${formatNumber(row.quantity_per_year, 2)}/ano · ${row.status === "pending" ? "aguardando aceite" : row.remaining_years === 0 ? "indefinido" : `${row.remaining_years} ano(s)`}\n${row.last_result}`).join("\n").slice(0, 1000) : "Nenhum contrato ativo ou pendente." },
+        { name: "Embargos e bloqueios", value: restrictions.length ? restrictions.map((row) => `\`${row.id.slice(0, 8)}\` · ${row.imposer} → ${row.target} · ${row.kind === "embargo" ? "embargo" : "bloqueio"}${row.item ? " · " + row.item : " · geral"}`).join("\n").slice(0, 1000) : "Nenhuma restrição ativa." },
       ).setFooter({ text: "Tarifas incidem sobre importações; contratos são liquidados automaticamente no fechamento anual." }).setColor(0x315e56);
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
@@ -1167,6 +1167,9 @@ const handlers: Record<string, Handler> = {
         { name: "6. Mercado mundial", value: "`/inventario estoque-global` configura estoque inicial, preços, capacidade máxima e reposição anual. O estoque é limitado pela capacidade e recebe a reposição definida pelo Narrador em cada avanço de ano. Compras e vendas afetam os preços anuais." },
         { name: "7. Abastecimento", value: "Se faltar alimento, o bot compra o disponível no mercado global; usa o tesouro e financia a diferença por inflação. Se o mercado não tiver alimento suficiente, o déficit aumenta a revolta. Na fabricação, materiais ausentes são comprados automaticamente se houver estoque global e dinheiro; sem qualquer um dos dois, a ordem não é iniciada e o comando informa o motivo. Não há inflação automática para materiais industriais." },
         { name: "8. Fechamento anual", value: "O Narrador executa `/ano avancar`. O bot calcula rendimentos, impostos, produção, consumo, exportações, reposição do mercado, abastecimento, revolta e preços. `/ano desfazer` reverte o último fechamento se nenhum dado posterior tiver sido alterado." },
+        { name: "9. Manutenção e prontidão militar", value: "`/militar consultar` mostra prontidão, efetivo, equipamentos e custo anual de manutenção. A manutenção militar considera apenas equipamentos atribuídos; a prontidão muda a cada ano conforme abastecimento e cobertura de equipamentos." },
+        { name: "10. Modernização", value: "`/militar modernizar` troca equipamento antigo por um modelo militar novo, consumindo o custo monetário e os materiais exigidos pelo item novo. É necessário desatribuir os soldados do equipamento antigo antes da troca." },
+        { name: "11. Comércio internacional", value: "`/comercio contrato-criar` propõe exportações/importações recorrentes; o comprador aceita com `/comercio contrato-aceitar`. `/comercio tarifa` define tarifa de importação. `/comercio restricao-impor` aplica embargo ou bloqueio, e `/comercio restricao-levantar` remove a restrição. `/comercio dependencia` analisa fornecedores dos últimos cinco anos." },
       )
       .setFooter({ text: "Os comandos administrativos são privados; manual, rankings e painel de negociações são públicos." })
       .setColor(0x315e56);
