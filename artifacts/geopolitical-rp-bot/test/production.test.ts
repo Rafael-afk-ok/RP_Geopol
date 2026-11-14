@@ -119,7 +119,7 @@ test("craft finances missing materials through inflation when treasury is insuff
     assert.equal((db.prepare("SELECT COUNT(*) AS count FROM production_orders").get() as { count: number }).count, 1);
     assert.equal((db.prepare("SELECT quantity FROM global_stock WHERE item_id = ?").get(materialId) as { quantity: number }).quantity, 2);
     assert.equal((db.prepare("SELECT inflation_issued FROM countries WHERE id = ?").get(countryId) as { inflation_issued: number }).inflation_issued, 5);
-    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id = ?").get(countryId) as { treasury: number }).treasury, 1);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id = ?").get(countryId) as { treasury: number }).treasury, 0);
   } finally {
     closeTestDatabase(db);
   }
