@@ -31,15 +31,18 @@ client.once(Events.ClientReady, async (readyClient) => {
 client.on(Events.InteractionCreate, async (interaction) => {
   if (!interaction.isChatInputCommand()) return;
   const commandInteraction: ChatInputCommandInteraction = interaction;
-  if (!commandInteraction.guildId) {
-    await commandInteraction.reply({
-      content: "Este bot funciona somente dentro de um servidor Discord.",
-      flags: MessageFlags.Ephemeral,
-    });
-    return;
-  }
 
   try {
+    // Acknowledge immediately: Discord invalidates unacknowledged interactions after 3 seconds.
+    await commandInteraction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    if (!commandInteraction.guildId) {
+      await commandInteraction.editReply({
+        content: "Este bot funciona somente dentro de um servidor Discord.",
+      });
+      return;
+    }
+
     const member = commandInteraction.member;
     const roleIds = member && "roles" in member
       ? Array.isArray(member.roles)
@@ -56,15 +59,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
       command: commandInteraction.commandName,
       guildId: commandInteraction.guildId,
       name: error instanceof Error ? error.name : "UnknownError",
+      message: error instanceof Error ? error.message : String(error),
+      code: typeof error === "object" && error !== null && "code" in error ? error.code : undefined,
     });
-    const response = {
-      content: "Não foi possível processar a solicitação.",
-      flags: MessageFlags.Ephemeral as const,
-    };
-    if (commandInteraction.replied || commandInteraction.deferred) {
-      await commandInteraction.followUp(response).catch(() => undefined);
+    if (commandInteraction.deferred || commandInteraction.replied) {
+      await commandInteraction.editReply({
+        content: "Não foi possível processar a solicitação.",
+        allowedMentions: { parse: [] },
+      }).catch(() => undefined);
     } else {
-      await commandInteraction.reply(response).catch(() => undefined);
+      await commandInteraction.reply({
+        content: "Não foi possível processar a solicitação.",
+        flags: MessageFlags.Ephemeral,
+      }).catch(() => undefined);
     }
   }
 });
