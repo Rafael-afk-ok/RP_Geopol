@@ -893,7 +893,7 @@ const handlers: Record<string, Handler> = {
     const guildId = id(interaction);
     requireNarratorPermission(db, guildId, interaction.user.id, "economy", "edit");
     const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais", true));
-    const signedAmount = interaction.options.getNumber("saldo", true);
+    const signedAmount = interaction.options.getNumber("valor", true);
     assertDomain(Number.isFinite(signedAmount) && signedAmount !== 0, "O valor precisa ser diferente de zero.");
     const reason = interaction.options.getString("motivo", true);
     adjustBalance(
