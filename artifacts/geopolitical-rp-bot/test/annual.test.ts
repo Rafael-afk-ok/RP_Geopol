@@ -208,7 +208,7 @@ test("annual exports credit revenue and market stock replenishes without exceedi
 test("food shortage buys available global food and finances only the shortfall through inflation", () => {
   const db = createTestDatabase();
   try {
-    const countryId = insertCountry(db, { name: "Hungry", treasury: 0, population: 100, foodPerPerson: 1 });
+    const countryId = insertCountry(db, { name: "Hungry", treasury: -1200, debtLimit: 1200, population: 100, foodPerPerson: 1 });
     const foodId = Number(db.prepare(
       "INSERT INTO items (guild_id, name, category, is_food, global_tradeable, created_by) VALUES ('guild', 'Grain', 'common', 1, 1, 'narrator')",
     ).run().lastInsertRowid);
