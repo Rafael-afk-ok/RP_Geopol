@@ -99,6 +99,13 @@ export function listSupplierDependencies(db:Database.Database,guildId:string,buy
   return rows.map(row=>({...row,share:totals.get(row.item)!>0?row.quantity/totals.get(row.item)!:0}));
 }
 
+export function listTradeRestrictions(db:Database.Database,guildId:string):Array<{id:string;imposer:string;target:string;kind:string;item:string|null;reason:string}> {
+  return db.prepare(`SELECT r.id,a.name imposer,b.name target,r.kind,i.name item,r.reason
+    FROM trade_restrictions r JOIN countries a ON a.id=r.imposing_country_id JOIN countries b ON b.id=r.target_country_id
+    LEFT JOIN items i ON i.id=r.item_id WHERE r.guild_id=? AND r.status='active' ORDER BY r.created_at DESC LIMIT 25`)
+    .all(guildId) as Array<{id:string;imposer:string;target:string;kind:string;item:string|null;reason:string}>;
+}
+
 export function processAnnualTradeContracts(db:Database.Database,guildId:string,actorId:string,year:number,runId:string):{applied:number;failed:number;tariffs:number;revenue:number;expenses:number} {
   const contracts=db.prepare("SELECT * FROM trade_contracts WHERE guild_id=? AND status='active' ORDER BY created_at,id").all(guildId) as Array<{id:string;seller_country_id:number;buyer_country_id:number;item_id:number;quantity_per_year:number;unit_price:number;remaining_years:number}>;
   const result={applied:0,failed:0,tariffs:0,revenue:0,expenses:0};
@@ -108,28 +115,32 @@ export function processAnnualTradeContracts(db:Database.Database,guildId:string,
       AND (r.kind='blockade' OR r.item_id IS NULL OR r.item_id=?) LIMIT 1`)
       .get(guildId,c.seller_country_id,c.buyer_country_id,c.buyer_country_id,c.seller_country_id,c.item_id);
     if(blocked){db.prepare("UPDATE trade_contracts SET last_result='Suspenso por embargo ou bloqueio comercial' WHERE id=?").run(c.id);result.failed++;continue;}
-    const seller=db.prepare("SELECT treasury FROM countries WHERE id=? AND guild_id=? AND status='active'").get(c.seller_country_id,guildId);
-    const buyer=db.prepare("SELECT treasury FROM countries WHERE id=? AND guild_id=? AND status='active'").get(c.buyer_country_id,guildId);
-    if(!seller||!buyer){db.prepare("UPDATE trade_contracts SET last_result='Suspenso: país indisponível' WHERE id=?").run(c.id);result.failed++;continue;}
-    const stock=db.prepare("SELECT quantity FROM country_inventory WHERE country_id=? AND item_id=?").get(c.seller_country_id,c.item_id) as {quantity:number}|undefined;
-    const assigned=db.prepare("SELECT assigned_soldiers FROM army_equipment_assignments WHERE country_id=? AND item_id=?").get(c.seller_country_id,c.item_id) as {assigned_soldiers:number}|undefined;
-    if((stock?.quantity??0)-(assigned?.assigned_soldiers??0)+1e-9<c.quantity_per_year){db.prepare("UPDATE trade_contracts SET last_result='Suspenso: estoque insuficiente do vendedor' WHERE id=?").run(c.id);result.failed++;continue;}
     const tariff=(db.prepare("SELECT import_tariff_percent FROM country_trade_settings WHERE country_id=?").get(c.buyer_country_id) as {import_tariff_percent:number}|undefined)?.import_tariff_percent??0;
     const base=c.quantity_per_year*c.unit_price, tariffAmount=base*tariff/100, total=base+tariffAmount;
     try {
-      adjustBalance(db,c.buyer_country_id,guildId,actorId,-total,"international_import",`Importação contratual · ano ${year}`,null,runId,year);
-      adjustBalance(db,c.seller_country_id,guildId,actorId,base,"international_export",`Exportação contratual · ano ${year}`,null,runId,year);
-    } catch {
-      db.prepare("UPDATE trade_contracts SET last_result='Suspenso: saldo insuficiente ou limite financeiro' WHERE id=?").run(c.id);result.failed++;continue;
+      inTransaction(db,()=>{
+        const seller=db.prepare("SELECT id FROM countries WHERE id=? AND guild_id=? AND status='active'").get(c.seller_country_id,guildId);
+        const buyer=db.prepare("SELECT id FROM countries WHERE id=? AND guild_id=? AND status='active'").get(c.buyer_country_id,guildId);
+        assertDomain(seller&&buyer,"País indisponível.");
+        const stock=db.prepare("SELECT quantity FROM country_inventory WHERE country_id=? AND item_id=?").get(c.seller_country_id,c.item_id) as {quantity:number}|undefined;
+        const assigned=db.prepare("SELECT assigned_soldiers FROM army_equipment_assignments WHERE country_id=? AND item_id=?").get(c.seller_country_id,c.item_id) as {assigned_soldiers:number}|undefined;
+        assertDomain((stock?.quantity??0)-(assigned?.assigned_soldiers??0)+1e-9>=c.quantity_per_year,"Estoque insuficiente do vendedor.");
+        adjustBalance(db,c.buyer_country_id,guildId,actorId,-total,"international_import",`Importação contratual · ano ${year}`,null,runId,year);
+        adjustBalance(db,c.seller_country_id,guildId,actorId,base,"international_export",`Exportação contratual · ano ${year}`,null,runId,year);
+        changeInventory(db,c.seller_country_id,c.item_id,-c.quantity_per_year);
+        changeInventory(db,c.buyer_country_id,c.item_id,c.quantity_per_year);
+        db.prepare("INSERT INTO international_trade_history(id,guild_id,contract_id,year,seller_country_id,buyer_country_id,item_id,quantity,unit_price,tariff_amount,run_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+          .run(randomUUID(),guildId,c.id,year,c.seller_country_id,c.buyer_country_id,c.item_id,c.quantity_per_year,c.unit_price,tariffAmount,runId);
+        const left=c.remaining_years>0?c.remaining_years-1:0;
+        db.prepare("UPDATE trade_contracts SET remaining_years=?,status=?,last_result=? WHERE id=?")
+          .run(left,left===0&&c.remaining_years>0?"completed":"active","Executado no ano "+year,c.id);
+      });
+      result.applied++;result.tariffs+=tariffAmount;result.revenue+=base;result.expenses+=total;
+    } catch (error) {
+      const reason=error instanceof Error?error.message:"Falha financeira ou de estoque";
+      db.prepare("UPDATE trade_contracts SET last_result=? WHERE id=?").run(("Suspenso: "+reason).slice(0,180),c.id);
+      result.failed++;
     }
-    changeInventory(db,c.seller_country_id,c.item_id,-c.quantity_per_year);
-    changeInventory(db,c.buyer_country_id,c.item_id,c.quantity_per_year);
-    db.prepare("INSERT INTO international_trade_history(id,guild_id,contract_id,year,seller_country_id,buyer_country_id,item_id,quantity,unit_price,tariff_amount,run_id) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
-      .run(randomUUID(),guildId,c.id,year,c.seller_country_id,c.buyer_country_id,c.item_id,c.quantity_per_year,c.unit_price,tariffAmount,runId);
-    const left=c.remaining_years>0?c.remaining_years-1:0;
-    db.prepare("UPDATE trade_contracts SET remaining_years=?,status=?,last_result=? WHERE id=?")
-      .run(left,left===0&&c.remaining_years>0?"completed":"active","Executado no ano "+year,c.id);
-    result.applied++;result.tariffs+=tariffAmount;result.revenue+=base;result.expenses+=total;
   }
   return result;
 }
