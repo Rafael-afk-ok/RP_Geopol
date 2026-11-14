@@ -193,11 +193,34 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, `País **${interaction.options.getString("nome", true)}** criado. Jogadores com o cargo serão associados automaticamente ao usar o bot.`);
       return;
     }
-    if (subcommand === "arquivar") {
+    if (subcommand === "arquivar" || subcommand === "excluir") {
       const countryId = countryNumber(interaction, db);
       const countryName = getCountryForView(db, guildId, interaction.user.id, countryId).name;
       archiveCountry(db, guildId, interaction.user.id, countryId);
-      await reply(interaction, `País **${countryName}** arquivado.`);
+      await reply(interaction, `País **${countryName}** removido dos países ativos. O histórico financeiro e anual foi preservado.`);
+      return;
+    }
+    if (subcommand === "geral") {
+      const countryId = countryNumber(interaction, db);
+      requireCountryOrNarratorPermission(db, guildId, countryId, interaction.user.id, "countries", "read");
+      const country = db.prepare("SELECT name, treasury, annual_income, population, revolt_counter, army_size FROM countries WHERE id = ? AND guild_id = ?").get(countryId, guildId) as { name: string; treasury: number; annual_income: number; population: number; revolt_counter: number; army_size: number };
+      const settings = db.prepare("SELECT current_year, currency_symbol FROM guild_settings WHERE guild_id = ?").get(guildId) as { current_year: number; currency_symbol: string };
+      const production = db.prepare("SELECT COALESCE(SUM(cp.annual_production * i.production_cost), 0) AS value FROM country_production cp JOIN items i ON i.id = cp.item_id WHERE cp.country_id = ?").get(countryId) as { value: number };
+      const stockValue = db.prepare("SELECT COALESCE(SUM(v.quantity * i.production_cost), 0) AS value FROM country_inventory v JOIN items i ON i.id = v.item_id WHERE v.country_id = ?").get(countryId) as { value: number };
+      const ranks = db.prepare(`SELECT
+        (SELECT COUNT(*) + 1 FROM countries x WHERE x.guild_id = ? AND x.status = 'active' AND x.treasury > c.treasury) AS economy_rank,
+        (SELECT COUNT(*) + 1 FROM countries x WHERE x.guild_id = ? AND x.status = 'active' AND x.population > c.population) AS population_rank,
+        (SELECT COUNT(*) + 1 FROM countries x JOIN country_production p ON p.country_id = x.id JOIN items i ON i.id = p.item_id WHERE x.guild_id = ? AND x.status = 'active' GROUP BY x.id HAVING SUM(p.annual_production * i.production_cost) > ?) AS production_rank
+        FROM countries c WHERE c.id = ?`).get(guildId, guildId, guildId, production.value, countryId) as { economy_rank: number; population_rank: number; production_rank: number | null };
+      const equipment = db.prepare("SELECT COALESCE(SUM(assigned_soldiers), 0) AS total FROM army_equipment_assignments WHERE country_id = ?").get(countryId) as { total: number };
+      const embed = new EmbedBuilder().setTitle(`Visão geral nacional · ${country.name}`).setDescription(`**Ano ${settings.current_year}**`).addFields(
+        { name: "Economia", value: `Tesouro: ${settings.currency_symbol} ${formatNumber(country.treasury, 2)}\nRenda anual: ${settings.currency_symbol} ${formatNumber(country.annual_income, 2)}\nValor estimado do estoque: ${settings.currency_symbol} ${formatNumber(stockValue.value, 2)}`, inline: true },
+        { name: "População", value: `${formatNumber(country.population, 0)} habitantes\nRevolta: ${formatNumber(country.revolt_counter, 2)}`, inline: true },
+        { name: "Exército", value: `Efetivo: ${formatNumber(country.army_size, 0)}\nEquipados: ${formatNumber(equipment.total, 0)}\nSem equipamento: ${formatNumber(Math.max(0, country.army_size - equipment.total), 0)}`, inline: true },
+        { name: "Produção", value: `Valor anual estimado: ${settings.currency_symbol} ${formatNumber(production.value, 2)}`, inline: true },
+        { name: "Rankings", value: `Economia: #${ranks.economy_rank}\nPopulação: #${ranks.population_rank}\nProdução: ${ranks.production_rank ? `#${ranks.production_rank}` : "—"}`, inline: true },
+      ).setColor(country.revolt_counter >= 50 ? 0xa94442 : 0x315e56).setFooter({ text: "Valores de produção e estoque são estimativas pelo custo de produção cadastrado." });
+      await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
       return;
     }
     if (subcommand === "editar") {
@@ -779,6 +802,16 @@ const handlers: Record<string, Handler> = {
 
   ano: async (interaction, db) => {
     const guildId = id(interaction);
+    if (interaction.options.getSubcommand() === "definir") {
+      requireNarratorPermission(db, guildId, interaction.user.id, "year", "advance");
+      const targetYear = interaction.options.getInteger("ano", true);
+      const duplicate = db.prepare("SELECT id FROM annual_runs WHERE guild_id = ? AND year = ? AND undone_at IS NULL").get(guildId, targetYear);
+      assertDomain(!duplicate, `O ano ${targetYear} já possui um processamento ativo.`);
+      db.prepare("UPDATE guild_settings SET current_year = ?, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ?").run(targetYear, guildId);
+      audit(db, guildId, interaction.user.id, "set_current_year", "guild", guildId, { year: targetYear });
+      await reply(interaction, `Ano atual definido para **${targetYear}**. O próximo avanço processará ${targetYear + 1}.`);
+      return;
+    }
     if (interaction.options.getSubcommand() === "avancar") {
       const result = processAnnualTurn(db, guildId, interaction.user.id, interaction.id);
       await interaction.editReply({
