@@ -712,7 +712,7 @@ const handlers: Record<string, Handler> = {
     const subcommand = interaction.options.getSubcommand();
     const narrator = hasNarratorPermission(db, guildId, interaction.user.id, "countries", "read");
     if (subcommand === "criar") {
-      const own = resolveCommandCountry(db, guildId, interaction.user.id);
+      const own = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("meu_pais") ?? undefined);
       const targetName = interaction.options.getString("pais", true).trim();
       const target = db.prepare("SELECT id, name FROM countries WHERE guild_id = ? AND status = 'active' AND lower(name) = lower(?)").get(guildId, targetName) as { id: number; name: string } | undefined;
       assertDomain(target && target.id !== own.id, "País de destino não encontrado ou igual ao seu país.");
