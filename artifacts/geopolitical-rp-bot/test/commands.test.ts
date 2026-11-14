@@ -2,6 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { commandBuilders } from "../src/commands/definitions.js";
 
+type CommandOption = { name: string; required?: boolean; options?: CommandOption[] };
+
+function commandOptions(value: unknown): CommandOption[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (option): option is CommandOption =>
+      typeof option === "object" && option !== null && "name" in option && typeof option.name === "string",
+  );
+}
+
 test("all requested slash-command categories are registered with unique valid names", () => {
   const names = commandBuilders.map((command) => command.name);
   const expected = [
@@ -37,13 +47,13 @@ test("all requested slash-command categories are registered with unique valid na
   for (const name of names) assert.match(name, /^[a-z0-9-]{1,32}$/);
 
   const personalSettings = commandBuilders.find((command) => command.name === "configuracoes");
-  const personalSubcommands = personalSettings?.options?.map((option) => option.name);
-  assert.deepEqual(personalSubcommands, ["pessoais"]);
-  const personalOptions = personalSettings?.options?.[0]?.options ?? [];
+  const personalSubcommands = commandOptions(personalSettings?.options);
+  assert.deepEqual(personalSubcommands.map((option) => option.name), ["pessoais"]);
+  const personalOptions = commandOptions(personalSubcommands[0]?.options);
   assert.deepEqual(personalOptions.map((option) => option.name), ["pais", "inflacao_automatica"]);
   assert.ok(personalOptions.every((option) => option.required === false));
   const economyCommand = commandBuilders.find((command) => command.name === "economia");
-  assert.ok(!economyCommand?.options?.some((option) => option.name === "inflacao-automatica"));
+  assert.ok(!commandOptions(economyCommand?.options).some((option) => option.name === "inflacao-automatica"));
 
   const countryCommand = commandBuilders.find((command) => command.name === "pais");
   const countrySubcommands = countryCommand?.options?.map((option) => option.name);
