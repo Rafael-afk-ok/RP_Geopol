@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import {
   ActionRowBuilder,
   ButtonBuilder,
@@ -673,6 +674,68 @@ const handlers: Record<string, Handler> = {
       .setFooter({ text: "Consequências de revoltas são decididas pelo narrador." })
       .setColor(0x315e56);
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+  },
+
+  negociacao: async (interaction, db) => {
+    const guildId = id(interaction);
+    const subcommand = interaction.options.getSubcommand();
+    const narrator = hasNarratorPermission(db, guildId, interaction.user.id, "countries", "read");
+    if (subcommand === "criar") {
+      const own = resolveCommandCountry(db, guildId, interaction.user.id);
+      const targetName = interaction.options.getString("pais", true).trim();
+      const target = db.prepare("SELECT id, name FROM countries WHERE guild_id = ? AND status = 'active' AND lower(name) = lower(?)").get(guildId, targetName) as { id: number; name: string } | undefined;
+      assertDomain(target && target.id !== own.id, "País de destino não encontrado ou igual ao seu país.");
+      const direction = interaction.options.getString("direcao", true);
+      const type = interaction.options.getString("tipo", true);
+      const quantity = interaction.options.getNumber("quantidade", true);
+      const duration = interaction.options.getInteger("duracao", true);
+      const itemName = interaction.options.getString("item");
+      assertDomain(type !== "item" || !!itemName, "Informe o item para transferências de recursos.");
+      assertDomain(type !== "money" || !itemName, "Não informe item em uma transferência de dinheiro.");
+      const itemId = type === "item" ? itemIdByName(db, guildId, itemName!) : null;
+      const fromId = direction === "send" ? own.id : target.id;
+      const toId = direction === "send" ? target.id : own.id;
+      if (type === "item") {
+        const stock = db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(fromId, itemId) as { quantity: number } | undefined;
+        assertDomain((stock?.quantity ?? 0) >= quantity, "O país remetente não possui estoque suficiente para iniciar o acordo.");
+      } else {
+        const balance = db.prepare("SELECT treasury, debt_limit FROM countries WHERE id = ?").get(fromId) as { treasury: number; debt_limit: number };
+        assertDomain(balance.treasury - quantity >= -balance.debt_limit, "O país remetente não possui saldo ou limite de crédito suficiente.");
+      }
+      const agreementId = randomUUID();
+      db.prepare(`INSERT INTO scheduled_transfers
+        (id, guild_id, from_country_id, to_country_id, transfer_type, item_id, amount, duration_years, remaining_years, description, created_by)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(agreementId, guildId, fromId, toId, type, itemId, quantity, duration, duration, interaction.options.getString("descricao") ?? "", interaction.user.id);
+      audit(db, guildId, interaction.user.id, "create_annual_transfer", "scheduled_transfer", agreementId, { fromId, toId, type, itemId, quantity, duration });
+      await reply(interaction, `Acordo anual criado: **${direction === "send" ? own.name : target.name} → ${direction === "send" ? target.name : own.name}** · ${type === "money" ? "Dinheiro" : itemName} × ${formatNumber(quantity, 2)} · ${duration === 0 ? "Duração indefinida" : `${duration} ano(s)`} · ID \`${agreementId.slice(0, 8)}\`.`);
+      return;
+    }
+    if (subcommand === "painel") {
+      const rows = narrator
+        ? db.prepare(`SELECT t.*, a.name AS sender, b.name AS receiver, i.name AS item_name FROM scheduled_transfers t JOIN countries a ON a.id = t.from_country_id JOIN countries b ON b.id = t.to_country_id LEFT JOIN items i ON i.id = t.item_id WHERE t.guild_id = ? AND t.status = 'active' ORDER BY t.created_at DESC LIMIT 25`).all(guildId)
+        : db.prepare(`SELECT t.*, a.name AS sender, b.name AS receiver, i.name AS item_name FROM scheduled_transfers t JOIN countries a ON a.id = t.from_country_id JOIN countries b ON b.id = t.to_country_id LEFT JOIN items i ON i.id = t.item_id WHERE t.guild_id = ? AND t.status = 'active' AND (EXISTS (SELECT 1 FROM country_memberships m WHERE m.country_id = t.from_country_id AND m.user_id = ?) OR EXISTS (SELECT 1 FROM country_memberships m WHERE m.country_id = t.to_country_id AND m.user_id = ?)) ORDER BY t.created_at DESC LIMIT 25`).all(guildId, interaction.user.id, interaction.user.id);
+      const agreements = rows as Array<{ id: string; sender: string; receiver: string; transfer_type: string; item_name: string | null; amount: number; remaining_years: number; description: string }>;
+      const embed = new EmbedBuilder().setTitle("Negociações · acordos anuais").setDescription(agreements.length ? agreements.map((a) => `**${a.sender} → ${a.receiver}** · ${a.transfer_type === "money" ? "Dinheiro" : a.item_name} × ${formatNumber(a.amount, 2)}\nDuração: ${a.remaining_years === 0 ? "indefinida" : `${a.remaining_years} ano(s) restante(s)`} · ID \`${a.id.slice(0, 8)}\`${a.description ? `\n${a.description}` : ""}`).join("\\n\\n").slice(0, 4000) : "Nenhum acordo ativo visível para você.").setFooter({ text: "Use /negociacao editar ou /negociacao cancelar com o ID do acordo." }).setColor(0x315e56);
+      await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+      return;
+    }
+    const agreementId = interaction.options.getString("id", true);
+    const agreement = db.prepare("SELECT * FROM scheduled_transfers WHERE guild_id = ? AND id LIKE ? AND status = 'active'").get(guildId, agreementId + "%") as { id: string; from_country_id: number; to_country_id: number } | undefined;
+    assertDomain(agreement, "Acordo ativo não encontrado.");
+    const member = db.prepare("SELECT 1 FROM country_memberships WHERE user_id = ? AND country_id IN (?, ?)").get(interaction.user.id, agreement.from_country_id, agreement.to_country_id);
+    assertDomain(narrator || member, "Somente os países envolvidos ou um narrador podem alterar este acordo.");
+    if (subcommand === "cancelar") {
+      db.prepare("UPDATE scheduled_transfers SET status = 'cancelled' WHERE id = ?").run(agreement.id);
+      audit(db, guildId, interaction.user.id, "cancel_annual_transfer", "scheduled_transfer", agreement.id);
+      await reply(interaction, `Acordo \`${agreement.id.slice(0, 8)}\` cancelado.`);
+      return;
+    }
+    const quantity = interaction.options.getNumber("quantidade", true);
+    const duration = interaction.options.getInteger("duracao", true);
+    db.prepare("UPDATE scheduled_transfers SET amount = ?, duration_years = ?, remaining_years = ? WHERE id = ?").run(quantity, duration, duration, agreement.id);
+    audit(db, guildId, interaction.user.id, "edit_annual_transfer", "scheduled_transfer", agreement.id, { quantity, duration });
+    await reply(interaction, `Acordo \`${agreement.id.slice(0, 8)}\` atualizado: ${formatNumber(quantity, 2)} por ano · ${duration === 0 ? "duração indefinida" : `${duration} ano(s)`}.`);
   },
 
   consumo: async (interaction, db) => {
