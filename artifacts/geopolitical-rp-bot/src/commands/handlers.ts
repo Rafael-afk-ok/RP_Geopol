@@ -728,7 +728,8 @@ const handlers: Record<string, Handler> = {
       const toId = direction === "send" ? target.id : own.id;
       if (type === "item") {
         const stock = db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(fromId, itemId) as { quantity: number } | undefined;
-        assertDomain((stock?.quantity ?? 0) >= quantity, "O país remetente não possui estoque suficiente para iniciar o acordo.");
+        const assigned = db.prepare("SELECT assigned_soldiers FROM army_equipment_assignments WHERE country_id = ? AND item_id = ?").get(fromId, itemId) as { assigned_soldiers: number } | undefined;
+        assertDomain((stock?.quantity ?? 0) - (assigned?.assigned_soldiers ?? 0) >= quantity, "O país remetente não possui estoque livre suficiente; equipamentos atribuídos ao exército ficam reservados.");
       } else {
         const balance = db.prepare("SELECT treasury, debt_limit FROM countries WHERE id = ?").get(fromId) as { treasury: number; debt_limit: number };
         assertDomain(balance.treasury - quantity >= -balance.debt_limit, "O país remetente não possui saldo ou limite de crédito suficiente.");
