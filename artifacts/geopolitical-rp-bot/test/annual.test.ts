@@ -208,6 +208,7 @@ test("annual exports credit revenue and market stock replenishes without exceedi
 test("food shortage buys available global food and finances only the shortfall through inflation", () => {
   const db = createTestDatabase();
   try {
+    db.prepare("UPDATE guild_settings SET inflation_rate_percent = 5 WHERE guild_id = 'guild'").run();
     const countryId = insertCountry(db, { name: "Hungry", treasury: -1200, debtLimit: 1200, population: 100, foodPerPerson: 1 });
     const foodId = Number(db.prepare(
       "INSERT INTO items (guild_id, name, category, is_food, global_tradeable, created_by) VALUES ('guild', 'Grain', 'common', 1, 1, 'narrator')",
@@ -246,8 +247,8 @@ test("non-food population rules do not disable default food consumption", () => 
 test("undo restores inflation and voids only annual market transactions", () => {
   const db = createTestDatabase();
   try {
-     db.prepare("UPDATE guild_settings SET inflation_rate_percent = 5 WHERE guild_id = 'guild'").run();
-   const countryId = insertCountry(db, { name: "Hungry", treasury: -1200, debtLimit: 1200, population: 100, foodPerPerson: 1 });
+    db.prepare("UPDATE guild_settings SET inflation_rate_percent = 5 WHERE guild_id = 'guild'").run();
+    const countryId = insertCountry(db, { name: "Hungry", treasury: -1200, debtLimit: 1200, population: 100, foodPerPerson: 1 });
     const foodId = Number(db.prepare("INSERT INTO items (guild_id, name, category, is_food, global_tradeable, created_by) VALUES ('guild', 'Grain', 'common', 1, 1, 'narrator')").run().lastInsertRowid);
     db.prepare("INSERT INTO global_stock (guild_id, item_id, quantity, current_price, base_price, min_price, max_price, max_quantity, annual_replenishment) VALUES ('guild', ?, 40, 2, 2, 1, 10, 100, 0)").run(foodId);
     const run = processAnnualTurn(db, "guild", "narrator", "undo-inflation-market");
@@ -277,8 +278,8 @@ test("a country hitting its treasury ceiling does not abort the global annual cl
 test("annual close automatically buys missing non-food population resources", () => {
   const db = createTestDatabase();
   try {
-     db.prepare("UPDATE guild_settings SET inflation_rate_percent = 5 WHERE guild_id = 'guild'").run();
-   const countryId = insertCountry(db, { name: "Industrial", treasury: 0, population: 10, foodPerPerson: 0 });
+    db.prepare("UPDATE guild_settings SET inflation_rate_percent = 5 WHERE guild_id = 'guild'").run();
+    const countryId = insertCountry(db, { name: "Industrial", treasury: 0, population: 10, foodPerPerson: 0 });
     const itemId = Number(db.prepare(
       "INSERT INTO items (guild_id,name,category,global_tradeable,created_by) VALUES ('guild','Cloth','common',1,'narrator')",
     ).run().lastInsertRowid);
