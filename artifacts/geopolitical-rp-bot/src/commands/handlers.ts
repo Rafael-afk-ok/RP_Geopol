@@ -123,6 +123,36 @@ function formatNumber(value: number, decimals: number): string {
 }
 
 const handlers: Record<string, Handler> = {
+  configuracoes: async (interaction, db) => {
+    const guildId = id(interaction);
+    const requestedCountry = interaction.options.getString("pais");
+    const automaticInflation = interaction.options.getBoolean("inflacao_automatica");
+    if (requestedCountry) {
+      const country = resolveCommandCountry(db, guildId, interaction.user.id, requestedCountry);
+      if (automaticInflation !== null) {
+        setAutomaticInflation(db, guildId, interaction.user.id, country.id, automaticInflation);
+        await reply(interaction, `Financiamento inflacionário automático ${automaticInflation ? "ativado" : "desativado"} para **${country.name}**.`);
+        return;
+      }
+      const row = db.prepare("SELECT automatic_inflation_enabled FROM countries WHERE id = ? AND guild_id = ?").get(country.id, guildId) as { automatic_inflation_enabled: number };
+      await reply(interaction, `**Configurações de ${country.name}**\\nInflação automática: **${row.automatic_inflation_enabled ? "Ativada" : "Desativada"}**`);
+      return;
+    }
+    const countries = db.prepare(
+      "SELECT c.id, c.name, c.automatic_inflation_enabled FROM countries c JOIN country_memberships m ON m.country_id = c.id WHERE c.guild_id = ? AND c.status = 'active' AND m.user_id = ? ORDER BY c.name",
+    ).all(guildId, interaction.user.id) as Array<{ id: number; name: string; automatic_inflation_enabled: number }>;
+    assertDomain(countries.length > 0, "Nenhum país associado. Se você for narrador, informe o nome do país no campo pais.");
+    if (automaticInflation !== null) {
+      assertDomain(countries.length === 1, "Você está associado a mais de um país. Informe o campo pais para escolher onde alterar a preferência.");
+      const country = countries[0]!;
+      setAutomaticInflation(db, guildId, interaction.user.id, country.id, automaticInflation);
+      await reply(interaction, `Financiamento inflacionário automático ${automaticInflation ? "ativado" : "desativado"} para **${country.name}**.`);
+      return;
+    }
+    await reply(interaction, "**Suas configurações por país**\\n" + countries.map((country) =>
+      `**${country.name}** — inflação automática: ${country.automatic_inflation_enabled ? "ativada" : "desativada"}`,
+    ).join("\\n"));
+  },
   configurar: async (interaction, db) => {
     const guildId = id(interaction);
     const subcommand = interaction.options.getSubcommand();
@@ -361,12 +391,6 @@ const handlers: Record<string, Handler> = {
         annualIncome: interaction.options.getNumber("renda_anual", true),
       });
       await reply(interaction, `Limites e rendimento anual atualizados.`);
-      return;
-    }
-    if (subcommand === "inflacao-automatica") {
-      const enabled = interaction.options.getBoolean("habilitada", true);
-      setAutomaticInflation(db, guildId, interaction.user.id, countryId, enabled);
-      await reply(interaction, `Financiamento inflacionário automático ${enabled ? "ativado" : "desativado"} para este país.`);
       return;
     }
     if (subcommand === "inflar") {
