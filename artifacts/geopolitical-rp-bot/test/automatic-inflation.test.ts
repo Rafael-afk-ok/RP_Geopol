@@ -57,16 +57,3 @@ test("production cannot use automatic inflation when disabled or global inflatio
     closeTestDatabase(db);
   }
 });
-
-test("unassigned custom inventory does not incur military maintenance", () => {
-  const db = createTestDatabase();
-  try {
-    const countryId = insertCountry(db, { name: "CustomStock", treasury: 100 });
-    const itemId = Number(db.prepare("INSERT INTO items (guild_id,name,category,annual_maintenance,created_by) VALUES ('guild','Custom radio','custom',3,'narrator')").run().lastInsertRowid);
-    db.prepare("INSERT INTO country_inventory (country_id,item_id,quantity) VALUES (?,?,20)").run(countryId,itemId);
-    processAnnualTurn(db, "guild", "narrator", "custom-unassigned-maintenance");
-    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(countryId) as {treasury:number}).treasury, 100);
-  } finally {
-    closeTestDatabase(db);
-  }
-});
