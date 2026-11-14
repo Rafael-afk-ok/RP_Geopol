@@ -74,3 +74,25 @@ test("undo refuses to overwrite changes made after the annual run", () => {
     closeTestDatabase(db);
   }
 });
+
+test("annual processing rolls back when population growth exceeds safe numeric limits", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { population: 100, growth: 1e308 });
+    assert.throws(
+      () => processAnnualTurn(db, "guild", "narrator", "annual-overflow"),
+      /excede o limite numérico seguro/,
+    );
+    assert.equal(
+      (db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = 'guild'").get() as { current_year: number }).current_year,
+      0,
+    );
+    assert.equal(
+      (db.prepare("SELECT population FROM countries WHERE id = ?").get(countryId) as { population: number }).population,
+      100,
+    );
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM annual_runs").get() as { count: number }).count, 0);
+  } finally {
+    closeTestDatabase(db);
+  }
+});

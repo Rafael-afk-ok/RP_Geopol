@@ -16,11 +16,14 @@ interface CountryBalance {
 }
 
 export function roundCurrency(db: Database.Database, guildId: string, amount: number): number {
+  assertDomain(Number.isFinite(amount), "O valor precisa ser um número finito.");
   const settings = db.prepare("SELECT currency_decimals FROM guild_settings WHERE guild_id = ?").get(guildId) as
     | { currency_decimals: number }
     | undefined;
   const scale = 10 ** (settings?.currency_decimals ?? 2);
-  return Math.round((amount + Math.sign(amount) * Number.EPSILON) * scale) / scale;
+  const rounded = Math.round((amount + Math.sign(amount) * Number.EPSILON) * scale) / scale;
+  assertDomain(Number.isFinite(rounded), "O valor excede o limite numérico da moeda.");
+  return rounded;
 }
 
 export function adjustBalance(
@@ -43,6 +46,7 @@ export function adjustBalance(
   ).get(countryId) as CountryBalance | undefined;
   assertDomain(country && country.guild_id === guildId, "País não encontrado ou arquivado.");
   const nextBalance = country.treasury + roundedDelta;
+  assertDomain(Number.isFinite(nextBalance), "O saldo resultante precisa ser finito.");
   assertDomain(nextBalance >= -country.debt_limit - 1e-9, `A operação ultrapassa o limite de dívida de ${country.name}.`, "DEBT_LIMIT");
   assertDomain(country.max_money === null || nextBalance <= country.max_money + 1e-9, `A operação ultrapassa o limite de saldo de ${country.name}.`, "MONEY_LIMIT");
   db.prepare("UPDATE countries SET treasury = ? WHERE id = ?").run(nextBalance, countryId);
@@ -103,7 +107,7 @@ export function addEconomyEntry(
       addEconomyEntry(db, guildId, actorId, countryId, direction, amount, description, recurrence, dueYear),
     );
   }
-  requireNarratorPermission(db, guildId, actorId, "economy", "edit");
+  requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "economy", "edit");
   amount = roundCurrency(db, guildId, amount);
   assertDomain(Number.isFinite(amount) && amount > 0, "O valor precisa ser maior que zero após aplicar as casas decimais da moeda.");
   assertDomain(description.trim().length > 0 && description.length <= 200, "A descrição é obrigatória e deve ter até 200 caracteres.");
@@ -163,8 +167,12 @@ export function issueInflation(
       | { inflation_rate_percent: number }
       | undefined;
     assertDomain((settings?.inflation_rate_percent ?? 0) > 0, "O narrador ainda não habilitou a inflação neste servidor.");
+    const country = db.prepare(
+      "SELECT inflation_issued FROM countries WHERE id = ? AND guild_id = ? AND status = 'active'",
+    ).get(countryId, guildId) as { inflation_issued: number } | undefined;
+    assertDomain(country && Number.isFinite(country.inflation_issued + amount), "O total acumulado de inflação é inválido.");
     adjustBalance(db, countryId, guildId, actorId, amount, "inflation_issue", "Emissão voluntária de dinheiro");
-    db.prepare("UPDATE countries SET inflation_issued = inflation_issued + ? WHERE id = ?").run(amount, countryId);
+    db.prepare("UPDATE countries SET inflation_issued = ? WHERE id = ?").run(country.inflation_issued + amount, countryId);
     audit(db, guildId, actorId, "issue_inflation", "country", countryId, { amount });
   });
 }

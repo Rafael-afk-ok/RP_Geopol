@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { grantNarratorPermission, hasNarratorPermission } from "../src/services/permissions.js";
-import { closeTestDatabase, createTestDatabase } from "./helpers.js";
+import {
+  associatePlayer,
+  grantNarratorPermission,
+  hasNarratorPermission,
+  removePlayer,
+  setCountryPermission,
+} from "../src/services/permissions.js";
+import { closeTestDatabase, createTestDatabase, insertCountry } from "./helpers.js";
 
 test("subordinate narrators cannot grant permissions they do not hold", () => {
   const db = createTestDatabase();
@@ -31,4 +37,50 @@ test("only the main narrator has implicit full authority", () => {
   } finally {
     closeTestDatabase(db);
   }
+});
+
+test("country player managers can manage membership and scoped permissions only", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db);
+    db.prepare(
+      `INSERT INTO country_memberships (country_id, user_id, permissions_json, created_by)
+       VALUES (?, 'manager', '{"read":true,"players.manage":true}', 'narrator'),
+              (?, 'target', '{"read":true}', 'narrator'),
+              (?, 'reader', '{"read":true}', 'narrator')`,
+    ).run(countryId, countryId, countryId);
+
+    assert.throws(
+      () => setCountryPermission(db, "guild", countryId, "reader", "target", "economy", "transfer", true),
+      /não tem permissão/,
+    );
+    setCountryPermission(db, "guild", countryId, "manager", "target", "economy", "transfer", true);
+    assert.throws(
+      () => setCountryPermission(db, "guild", countryId, "manager", "target", "year", "advance", true),
+      /não pode ser concedida por país/,
+    );
+
+    associatePlayer(db, "guild", countryId, "manager", "new-player");
+    assert.equal(
+      db.prepare("SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = 'new-player'").get(countryId) !== undefined,
+      true,
+    );
+    removePlayer(db, "guild", countryId, "manager", "new-player");
+    assert.equal(
+      db.prepare("SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = 'new-player'").get(countryId),
+      undefined,
+    );
+  } finally {
+    closeTestDatabase(db);
+  }
+});
+
+test("delegatable narrator permission matrix includes transfer, market actions, country edits, and year history", async () => {
+  const { validNarratorPermission } = await import("../src/commands/definitions.js");
+  assert.equal(validNarratorPermission("economy", "transfer"), true);
+  assert.equal(validNarratorPermission("economy", "inflate"), true);
+  assert.equal(validNarratorPermission("market", "buy"), true);
+  assert.equal(validNarratorPermission("market", "sell"), true);
+  assert.equal(validNarratorPermission("countries", "edit"), true);
+  assert.equal(validNarratorPermission("year", "read"), true);
 });

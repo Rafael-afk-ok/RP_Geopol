@@ -48,6 +48,10 @@ export function createPlayerOffer(
   }
   assertDomain(Number.isFinite(quantity) && quantity > 0, "A quantidade ofertada precisa ser maior que zero.");
   assertDomain(Number.isFinite(unitPrice) && unitPrice > 0, "O preço unitário precisa ser maior que zero.");
+  unitPrice = roundMoney(unitPrice, (db.prepare("SELECT currency_decimals FROM guild_settings WHERE guild_id = ?").get(guildId) as
+    | { currency_decimals: number }
+    | undefined)?.currency_decimals ?? 2);
+  assertDomain(Number.isFinite(unitPrice) && unitPrice > 0, "O preço precisa ser positivo após arredondar para a moeda.");
   requireCountryOrNarratorPermission(db, guildId, sellerCountryId, actorId, "market", "sell");
   return inTransaction(db, () => {
     const country = db.prepare("SELECT id FROM countries WHERE id = ? AND guild_id = ? AND status = 'active'").get(

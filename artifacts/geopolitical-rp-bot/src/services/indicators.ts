@@ -33,9 +33,10 @@ export function createIndicator(
   defaultValue: unknown,
 ): number {
   requireNarratorPermission(db, guildId, actorId, "indicators", "configure");
+  assertDomain(name.trim().length >= 2 && name.trim().length <= 80, "Nome de indicador inválido.");
   const category = db.prepare("SELECT id FROM indicator_categories WHERE id = ? AND guild_id = ?").get(categoryId, guildId);
   assertDomain(category, "Categoria de indicador não encontrada.");
-  assertIndicatorValue(dataType, defaultValue);
+  assertIndicatorValue(dataType, defaultValue, true);
   const result = db.prepare(
     `INSERT INTO indicator_definitions (category_id, name, description, data_type, default_value_json)
      VALUES (?, ?, ?, ?, ?)`,
@@ -96,8 +97,12 @@ export function listIndicators(
   return rows.map(({ value_json, ...row }) => ({ ...row, value: value_json === null ? null : JSON.parse(value_json) }));
 }
 
-export function assertIndicatorValue(type: string, value: unknown): void {
-  if (value === null || value === undefined) {
+export function assertIndicatorValue(type: string, value: unknown, allowUndefined = false): void {
+  if (value === undefined) {
+    assertDomain(allowUndefined, "Este indicador precisa de um valor.");
+    return;
+  }
+  if (value === null) {
     assertDomain(type === "json", "Este tipo de indicador precisa de um valor.");
     return;
   }

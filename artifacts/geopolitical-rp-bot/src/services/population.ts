@@ -11,8 +11,11 @@ export function configurePopulation(
   values: { population: number; annualGrowthPercent: number; foodPerPerson: number; revoltCounter: number },
 ): void {
   requireNarratorPermission(db, guildId, actorId, "population", "edit");
-  assertDomain(Number.isInteger(values.population) && values.population >= 0, "A população precisa ser um número inteiro não negativo.");
-  assertDomain(Number.isFinite(values.annualGrowthPercent), "Crescimento anual inválido.");
+  assertDomain(Number.isSafeInteger(values.population) && values.population >= 0, "A população precisa ser um inteiro seguro não negativo.");
+  assertDomain(
+    Number.isFinite(values.annualGrowthPercent) && values.annualGrowthPercent >= -100,
+    "O crescimento anual precisa ser finito e não pode ficar abaixo de -100%.",
+  );
   assertDomain(values.foodPerPerson >= 0 && Number.isFinite(values.foodPerPerson), "Necessidade alimentar inválida.");
   assertDomain(values.revoltCounter >= 0 && Number.isFinite(values.revoltCounter), "Contador de revolta inválido.");
   const result = db.prepare(

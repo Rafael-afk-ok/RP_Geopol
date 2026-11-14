@@ -61,6 +61,12 @@ export function startProduction(
       `INSERT INTO production_orders (id, country_id, item_id, quantity, remaining_years, total_years, status, created_by)
        VALUES (?, ?, ?, ?, ?, ?, 'in_progress', ?)`,
     ).run(orderId, countryId, itemId, quantity, item.production_years, item.production_years, actorId);
+    const reserveMaterial = db.prepare(
+      "INSERT INTO production_order_materials (order_id, item_id, quantity) VALUES (?, ?, ?)",
+    );
+    for (const requirement of requirements) {
+      reserveMaterial.run(orderId, requirement.material_item_id, requirement.quantity * quantity);
+    }
     audit(db, guildId, actorId, item.production_years === 0 ? "queue_instant_production" : "start_production", "production_order", orderId, {
       countryId,
       itemId,
@@ -99,11 +105,11 @@ export function cancelProduction(
   requireCountryOrNarratorPermission(db, guildId, order.country_id, actorId, "production", "cancel");
   return inTransaction(db, () => {
     const requirements = db.prepare(
-      "SELECT material_item_id, quantity FROM item_requirements WHERE item_id = ?",
-    ).all(order.item_id) as Array<{ material_item_id: number; quantity: number }>;
+      "SELECT item_id AS material_item_id, quantity FROM production_order_materials WHERE order_id = ?",
+    ).all(order.id) as Array<{ material_item_id: number; quantity: number }>;
     let returned = 0;
     for (const requirement of requirements) {
-      const refund = requirement.quantity * order.quantity * order.cancellation_refund_percent / 100;
+       const refund = requirement.quantity * order.cancellation_refund_percent / 100;
       if (refund > 0) {
         changeInventory(db, order.country_id, requirement.material_item_id, refund);
         returned += refund;

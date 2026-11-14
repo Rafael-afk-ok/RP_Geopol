@@ -33,6 +33,9 @@ test("timed production charges costs and materials up front, then refunds only m
     assert.equal(startProduction(db, "guild", "player", countryId, productId, 2, "start-request").orderId, started.orderId);
     assert.throws(() => startProduction(db, "guild", "player", countryId, productId, 1), /limite de produção simultânea/);
 
+    db.prepare(
+      "UPDATE item_requirements SET quantity = 1 WHERE item_id = ? AND material_item_id = ?",
+    ).run(productId, materialId);
     const returnedMaterials = cancelProduction(db, "guild", "player", started.orderId, "cancel-request");
     assert.equal(returnedMaterials, 2);
     assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(countryId, materialId) as { quantity: number }).quantity, 8);

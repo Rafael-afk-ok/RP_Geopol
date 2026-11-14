@@ -47,14 +47,14 @@ pnpm --filter @workspace/geopolitical-rp-bot run test
 pnpm --filter @workspace/geopolitical-rp-bot run build
 ```
 
-Os testes cobrem limites de dívida e transferência atômica, privilégios de narradores, acesso por país, produção instantânea e temporizada, e avanço/reversão anual.
+Os testes cobrem limites de dívida e transferências atômicas, permissões de narrador e de país, edição de países, itens personalizados e fluxos financeiros, produção instantânea e temporizada, e avanço/reversão anual.
 
 ## Sistemas
 
-- `/pais` e `/jogador`: países associados a cargos do Discord; a associação é criada quando o jogador usa o bot. Países e indicadores ficam privados por padrão.
-- `/permissao`: concessões de narrador por sistema/ação e permissões individuais por país. Narradores subordinados só delegam ações que possuem.
+- `/pais` e `/jogador`: países associados a cargos do Discord; a associação é criada quando o jogador usa o bot. Narradores podem criar, editar e arquivar países; países e indicadores ficam privados por padrão.
+- `/permissao`: concessões de narrador por sistema/ação e permissões individuais por país para ações autorizadas. Narradores subordinados só delegam ações que possuem.
 - `/economia`, `/transferir`: moeda compartilhada e configurável por servidor, limites de saldo e dívida, renda anual, lançamentos recorrentes/pontuais, emissão voluntária e extrato auditável.
-- `/inventario` e `/produzir`: itens militares, comuns e personalizados, custos, materiais, filas, manutenção operacional e cancelamento com devolução parcial de materiais. Produção instantânea também é entregue no processamento anual.
+- `/inventario` e `/produzir`: itens militares, bens comuns e categorias personalizadas, com propriedades, custos de produção, receitas, despesas, manutenção anual, materiais e filas. Materiais devolvidos ao cancelar são calculados pela receita usada ao iniciar o pedido.
 - `/mercado`: ofertas entre países com estoque reservado e compras parciais; mercado global com preços dentro dos limites configurados e histórico de transações e preços.
 - `/populacao`: crescimento, necessidade alimentar, déficit e contador de revolta; o bot não decide consequências políticas.
 - `/ano avancar` e `/ano desfazer`: processamento em uma transação, idempotência por interação Discord, snapshot antes/depois e reversões no livro-razão. A reversão é bloqueada se o estado do jogo mudou após o processamento.
@@ -63,7 +63,7 @@ Os testes cobrem limites de dívida e transferência atômica, privilégios de n
 ## Permissões iniciais
 
 1. O proprietário do servidor executa `/configurar principal`.
-2. O narrador cria a moeda, configura as regras, cria itens e categorias de indicadores.
+2. O narrador cria a moeda, configura as regras, cria itens e categorias personalizadas de itens e indicadores.
 3. O narrador cria os países vinculando cargos Discord e associa jogadores sem o cargo, quando necessário.
 4. O narrador concede permissões de narrador e de país antes de autorizar alterações por jogadores.
 5. O narrador configura a renda anual, limites, produção, alimentação e estoque global antes de usar `/ano avancar`.

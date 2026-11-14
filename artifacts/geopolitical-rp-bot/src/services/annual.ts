@@ -101,7 +101,17 @@ export function processAnnualTurn(
     const integrity = db.prepare(
       `SELECT c.id FROM countries c
        WHERE c.guild_id = ? AND c.status = 'active'
-         AND (c.treasury < -c.debt_limit - 1e-9 OR c.population < 0 OR c.revolt_counter < 0)
+          AND (
+            c.treasury < -c.debt_limit - 1e-9
+            OR (c.max_money IS NOT NULL AND c.treasury > c.max_money + 1e-9)
+            OR c.population < 0
+            OR c.population > 9007199254740991
+            OR c.population != CAST(c.population AS INTEGER)
+            OR c.annual_population_growth < -100
+            OR c.food_per_person < 0
+            OR c.inflation_issued < 0
+            OR c.revolt_counter < 0
+          )
        LIMIT 1`,
     ).get(guildId);
     assertDomain(!integrity, "A verificação de integridade encontrou dados nacionais inválidos.", "INTEGRITY_FAILURE");
@@ -161,14 +171,47 @@ export function processAnnualTurn(
         }
       }
 
-      const maintenance = db.prepare(
-        `SELECT COALESCE(SUM(v.quantity * i.annual_maintenance), 0) AS total
+      const operatingFlows = db.prepare(
+        `SELECT
+           COALESCE(SUM(v.quantity * i.annual_maintenance), 0) AS maintenance,
+           COALESCE(SUM(v.quantity * i.annual_income_per_unit), 0) AS income,
+           COALESCE(SUM(v.quantity * i.annual_expense_per_unit), 0) AS expense
          FROM country_inventory v JOIN items i ON i.id = v.item_id
          WHERE v.country_id = ?`,
-      ).get(country.id) as { total: number };
-      if (maintenance.total > 0) {
-        adjustBalance(db, country.id, guildId, actorId, -maintenance.total, "annual_maintenance", `Manutenção anual do ano ${year}`, null, runId, year);
-        summary.expenses += maintenance.total;
+      ).get(country.id) as { maintenance: number; income: number; expense: number };
+      if (operatingFlows.income > 0) {
+        adjustBalance(
+          db,
+          country.id,
+          guildId,
+          actorId,
+          operatingFlows.income,
+          "annual_item_income",
+          `Receitas anuais de itens operacionais no ano ${year}`,
+          null,
+          runId,
+          year,
+        );
+        summary.revenue += operatingFlows.income;
+      }
+      if (operatingFlows.expense > 0) {
+        adjustBalance(
+          db,
+          country.id,
+          guildId,
+          actorId,
+          -operatingFlows.expense,
+          "annual_item_expense",
+          `Despesas anuais de itens operacionais no ano ${year}`,
+          null,
+          runId,
+          year,
+        );
+        summary.expenses += operatingFlows.expense;
+      }
+      if (operatingFlows.maintenance > 0) {
+        adjustBalance(db, country.id, guildId, actorId, -operatingFlows.maintenance, "annual_maintenance", `Manutenção anual do ano ${year}`, null, runId, year);
+        summary.expenses += operatingFlows.maintenance;
       }
     }
 
@@ -211,7 +254,8 @@ export function processAnnualTurn(
       `SELECT o.id, o.country_id, o.item_id, o.quantity, o.remaining_years, i.name, i.annual_maintenance
        FROM production_orders o JOIN items i ON i.id = o.item_id
        JOIN countries c ON c.id = o.country_id
-       WHERE c.guild_id = ? AND o.status = 'in_progress' ORDER BY o.created_at, o.id`,
+       WHERE c.guild_id = ? AND c.status = 'active' AND o.status = 'in_progress'
+       ORDER BY o.created_at, o.id`,
     ).all(guildId) as Array<{
       id: string;
       country_id: number;
@@ -241,7 +285,13 @@ export function processAnnualTurn(
       "SELECT id FROM items WHERE guild_id = ? AND is_food = 1 ORDER BY id",
     ).all(guildId) as Array<{ id: number }>;
     for (const country of countries) {
-      const population = Math.max(0, Math.round(country.population * (1 + country.annual_population_growth / 100)));
+      const projectedPopulation = Math.round(country.population * (1 + country.annual_population_growth / 100));
+      assertDomain(
+        Number.isSafeInteger(projectedPopulation),
+        `O crescimento populacional calculado para ${country.name} excede o limite numérico seguro.`,
+        "POPULATION_OVERFLOW",
+      );
+      const population = Math.max(0, projectedPopulation);
       db.prepare("UPDATE countries SET population = ? WHERE id = ?").run(population, country.id);
       const requiredFood = population * country.food_per_person;
       let remainingNeed = requiredFood;

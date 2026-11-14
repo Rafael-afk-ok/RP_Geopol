@@ -1,0 +1,1 @@
+- [SQLite inventory upserts](sqlite-inventory-upserts.md) — validate the final nonnegative quantity before writing an UPSERT.

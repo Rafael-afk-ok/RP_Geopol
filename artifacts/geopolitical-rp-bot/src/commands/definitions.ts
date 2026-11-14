@@ -196,17 +196,25 @@ export const commandBuilders = [
     .setName("inventario")
     .setDescription("Gerencia itens, estoques e produção anual")
     .addSubcommand((subcommand) =>
+      subcommand.setName("categoria").setDescription("Cria uma categoria personalizada de itens")
+        .addStringOption((option) => option.setName("nome").setDescription("Nome da categoria").setRequired(true).setMaxLength(60))
+        .addStringOption((option) => option.setName("descricao").setDescription("Descrição").setRequired(false).setMaxLength(250)),
+    )
+    .addSubcommand((subcommand) =>
       subcommand.setName("criar-item").setDescription("Define um item, seus custos e propriedades")
         .addStringOption((option) => option.setName("nome").setDescription("Nome").setRequired(true).setMaxLength(80))
         .addStringOption((option) => option.setName("categoria").setDescription("Categoria").setRequired(true)
           .addChoices({ name: "Militar", value: "military" }, { name: "Bem comum", value: "common" }, { name: "Personalizado", value: "custom" }))
         .addNumberOption((option) => option.setName("custo").setDescription("Custo inicial de produção").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("manutencao").setDescription("Manutenção anual por unidade operacional").setRequired(true).setMinValue(0))
+         .addNumberOption((option) => option.setName("receita_anual").setDescription("Receita anual por unidade operacional").setRequired(false).setMinValue(0))
+         .addNumberOption((option) => option.setName("despesa_anual").setDescription("Despesa anual por unidade operacional").setRequired(false).setMinValue(0))
         .addIntegerOption((option) => option.setName("duracao_anos").setDescription("0 para produção instantânea").setRequired(true).setMinValue(0))
         .addIntegerOption((option) => option.setName("filas_simultaneas").setDescription("Máximo de pedidos em andamento").setRequired(true).setMinValue(1).setMaxValue(100))
         .addBooleanOption((option) => option.setName("alimento").setDescription("Este item conta como alimento").setRequired(true))
         .addBooleanOption((option) => option.setName("mercado_global").setDescription("Pode ser negociado no mercado global").setRequired(true))
         .addStringOption((option) => option.setName("descricao").setDescription("Descrição").setRequired(false).setMaxLength(250))
+         .addIntegerOption((option) => option.setName("categoria_personalizada_id").setDescription("ID da categoria (obrigatório para itens personalizados)").setRequired(false).setMinValue(1))
         .addStringOption((option) => option.setName("propriedades_json").setDescription("Propriedades personalizadas em JSON").setRequired(false).setMaxLength(2000)),
     )
     .addSubcommand((subcommand) =>

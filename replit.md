@@ -13,7 +13,7 @@ Bot Discord em TypeScript para roleplay geopolítico, com economia persistente, 
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
 - Required secret: `DISCORD_BOT_TOKEN`
-- Optional env: `DATABASE_PATH` (defaults to `artifacts/geopolitical-rp-bot/data/game.sqlite`), `DISCORD_GUILD_ID` (guild-scoped command registration), `DISCORD_OWNER_ID` (initial narrator bootstrap)
+- Optional env: `DATABASE_PATH` (defaults to `data/game.sqlite` relative to the bot package), `DISCORD_GUILD_ID` (guild-scoped command registration), `DISCORD_OWNER_ID` (initial narrator bootstrap)
 
 ## Stack
 
@@ -39,7 +39,7 @@ Bot Discord em TypeScript para roleplay geopolítico, com economia persistente, 
 
 ## Product
 
-Countries are private by default. The bot provides scoped narrators, per-country player permissions, a configurable economy, production, food and revolt indicators, player/global markets, and reversible annual turns.
+Countries are private by default. The bot provides scoped narrators, per-country player permissions, editable countries, custom item categories and operational income/expenses, a configurable economy, production, food and revolt indicators, player/global markets, and reversible annual turns.
 
 ## User preferences
 

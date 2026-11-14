@@ -30,6 +30,32 @@ export function archiveCountry(db: Database.Database, guildId: string, actorId: 
   audit(db, guildId, actorId, "archive_country", "country", countryId);
 }
 
+export function updateCountry(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  countryId: number,
+  values: { name?: string; roleId?: string },
+): void {
+  requireNarratorPermission(db, guildId, actorId, "countries", "edit");
+  const name = values.name?.trim();
+  const roleId = values.roleId?.trim();
+  assertDomain(name !== undefined || roleId !== undefined, "Informe um novo nome, um novo cargo ou ambos.");
+  if (name !== undefined) {
+    assertDomain(name.length >= 2 && name.length <= 80, "O nome deve ter entre 2 e 80 caracteres.");
+  }
+  if (roleId !== undefined) assertDomain(roleId.length > 0, "O cargo associado é inválido.");
+  const result = db.prepare(
+    `UPDATE countries SET name = COALESCE(?, name), role_id = COALESCE(?, role_id)
+     WHERE id = ? AND guild_id = ? AND status = 'active'`,
+  ).run(name ?? null, roleId ?? null, countryId, guildId);
+  assertDomain(result.changes > 0, "País não encontrado ou arquivado.");
+  audit(db, guildId, actorId, "edit_country", "country", countryId, {
+    ...(name !== undefined ? { name } : {}),
+    ...(roleId !== undefined ? { roleId } : {}),
+  });
+}
+
 export function listAccessibleCountries(db: Database.Database, guildId: string, userId: string): Country[] {
   return db.prepare(
     `SELECT c.* FROM countries c

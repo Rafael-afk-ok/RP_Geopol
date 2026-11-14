@@ -116,6 +116,7 @@ export function revokeNarratorPermission(
 
 export function setCountryPermission(
   db: Database.Database,
+  guildId: string,
   countryId: number,
   actorId: string,
   targetUserId: string,
@@ -123,7 +124,20 @@ export function setCountryPermission(
   action: string,
   allowed: boolean,
 ): void {
-  const country = db.prepare("SELECT id, guild_id FROM countries WHERE id = ? AND status = 'active'").get(countryId) as
+  requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "players", "manage");
+  const countrySystems = new Set(["economy", "inventory", "production", "population", "market", "players", "indicators"]);
+  const countryActions = new Set([
+    "read", "create", "edit", "configure", "manage", "start", "cancel", "buy", "sell", "transfer", "inflate",
+  ]);
+  assertDomain(
+    countrySystems.has(system) && countryActions.has(action),
+    "Esta permissão não pode ser concedida por país.",
+    "INVALID_COUNTRY_PERMISSION",
+  );
+  const country = db.prepare("SELECT id, guild_id FROM countries WHERE id = ? AND guild_id = ? AND status = 'active'").get(
+    countryId,
+    guildId,
+  ) as
     | { id: number; guild_id: string }
     | undefined;
   assertDomain(country, "País não encontrado ou arquivado.");
@@ -217,6 +231,7 @@ export function associatePlayer(
   actorId: string,
   targetUserId: string,
 ): void {
+  requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "players", "manage");
   const country = db.prepare("SELECT id, guild_id, name FROM countries WHERE id = ? AND status = 'active'").get(countryId) as
     | { id: number; guild_id: string; name: string }
     | undefined;
@@ -236,7 +251,8 @@ export function removePlayer(
   actorId: string,
   targetUserId: string,
 ): void {
-  const country = db.prepare("SELECT id, guild_id FROM countries WHERE id = ?").get(countryId) as
+  requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "players", "manage");
+  const country = db.prepare("SELECT id, guild_id FROM countries WHERE id = ? AND status = 'active'").get(countryId) as
     | { id: number; guild_id: string }
     | undefined;
   assertDomain(country && country.guild_id === guildId, "País não encontrado.");

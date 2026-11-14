@@ -10,7 +10,7 @@ import { processAnnualTurn, undoAnnualTurn, listAnnualRuns } from "../services/a
 import { addEconomyEntry, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
 import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
-import { adjustInventory, addItemRequirement, defineItem, listCountryInventory, setCountryProduction, setGlobalStock } from "../services/inventory.js";
+import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, setCountryProduction, setGlobalStock } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
 import { configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
 import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission, revokeNarratorPermission, setCountryPermission } from "../services/permissions.js";
@@ -168,7 +168,11 @@ const handlers: Record<string, Handler> = {
       const countries = hasNarratorPermission(db, guildId, interaction.user.id, "countries", "read")
         ? listNarratedCountries(db, guildId, interaction.user.id)
         : listAccessibleCountries(db, guildId, interaction.user.id);
-      await interaction.reply({ embeds: [userCountriesEmbed("Países acessíveis", countries)], flags: MessageFlags.Ephemeral });
+      await interaction.reply({
+        embeds: [userCountriesEmbed("Países acessíveis", countries)],
+        flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
+      });
       return;
     }
     const countryId = countryNumber(interaction);
@@ -198,6 +202,7 @@ const handlers: Record<string, Handler> = {
       await interaction.reply({
         embeds: [userCountriesEmbed("Seus países", listAccessibleCountries(db, guildId, interaction.user.id))],
         flags: MessageFlags.Ephemeral,
+        allowedMentions: { parse: [] },
       });
       return;
     }
@@ -240,7 +245,16 @@ const handlers: Record<string, Handler> = {
     const system = interaction.options.getString("sistema", true) as Parameters<typeof setCountryPermission>[4];
     const action = interaction.options.getString("acao", true);
     const allowed = interaction.options.getBoolean("permitir", true);
-    setCountryPermission(db, guildId, countryId, interaction.user.id, target.id, system, action, allowed);
+    setCountryPermission(
+      db,
+      guildId,
+      countryId,
+      interaction.user.id,
+      target.id,
+      system as Parameters<typeof setCountryPermission>[5],
+      action,
+      allowed,
+    );
     await reply(interaction, `Permissão **${system}/${action}** ${allowed ? "concedida" : "revogada"} para <@${target.id}> no país ${countryId}.`);
   },
 
@@ -300,7 +314,7 @@ const handlers: Record<string, Handler> = {
         ? rows.map((row) => `**${row.category} · ${row.name}** (${row.data_type})\n${String(row.value ?? "—")}${row.description ? `\n${row.description}` : ""}`).join("\n\n").slice(0, 4000)
         : "Nenhum indicador foi configurado.")
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
   },
 
   economia: async (interaction, db) => {
@@ -365,6 +379,17 @@ const handlers: Record<string, Handler> = {
   inventario: async (interaction, db) => {
     const guildId = id(interaction);
     const subcommand = interaction.options.getSubcommand();
+    if (subcommand === "categoria") {
+      const categoryId = createCustomItemCategory(
+        db,
+        guildId,
+        interaction.user.id,
+        interaction.options.getString("nome", true),
+        interaction.options.getString("descricao") ?? "",
+      );
+      await reply(interaction, `Categoria personalizada criada. ID: **${categoryId}**.`);
+      return;
+    }
     if (subcommand === "criar-item") {
       let properties: Record<string, unknown> = {};
       const rawProperties = interaction.options.getString("propriedades_json");
@@ -376,10 +401,13 @@ const handlers: Record<string, Handler> = {
       const itemId = defineItem(db, guildId, interaction.user.id, {
         name: interaction.options.getString("nome", true),
         category: interaction.options.getString("categoria", true) as "military" | "common" | "custom",
+        customCategoryId: interaction.options.getInteger("categoria_personalizada_id") ?? undefined,
         description: interaction.options.getString("descricao") ?? "",
         properties,
         productionCost: interaction.options.getNumber("custo", true),
         annualMaintenance: interaction.options.getNumber("manutencao", true),
+        annualIncomePerUnit: interaction.options.getNumber("receita_anual") ?? 0,
+        annualExpensePerUnit: interaction.options.getNumber("despesa_anual") ?? 0,
         productionYears: interaction.options.getInteger("duracao_anos", true),
         maxParallelOrders: interaction.options.getInteger("filas_simultaneas", true),
         isFood: interaction.options.getBoolean("alimento", true),
@@ -390,7 +418,7 @@ const handlers: Record<string, Handler> = {
     }
     if (subcommand === "ajustar") {
       adjustInventory(db, guildId, interaction.user.id, countryNumber(interaction), interaction.options.getInteger("item_id", true),
-        interaction.options.getNumber("variacao", true), interaction.options.getString("motivo", true));
+        interaction.options.getNumber("variacao", true), interaction.options.getString("motivo", true), interaction.id);
       await reply(interaction, "Estoque atualizado.");
       return;
     }
@@ -440,7 +468,7 @@ const handlers: Record<string, Handler> = {
         ? rows.map((row) => `**${row.name}** · ${row.category}: ${formatNumber(row.quantity, 2)}${row.unit ? ` ${row.unit}` : ""} (ID ${row.id})`).join("\n").slice(0, 4000)
         : "Nenhum item configurado.")
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
   },
 
   produzir: async (interaction, db) => {
@@ -473,7 +501,7 @@ const handlers: Record<string, Handler> = {
         ? rows.map((row) => `**${row.item}** × ${formatNumber(row.quantity, 2)} · ${row.status === "in_progress" ? `${row.remaining_years} ano(s) restante(s)` : row.status} · \`${row.id.slice(0, 8)}\``).join("\n").slice(0, 4000)
         : "Nenhum pedido de produção.")
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
   },
 
   mercado: async (interaction, db) => {
@@ -538,7 +566,7 @@ const handlers: Record<string, Handler> = {
             : "Nenhum reajuste registrado." },
         )
         .setColor(0x315e56);
-      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
       return;
     }
     if (subcommand === "ofertar") {
@@ -604,7 +632,7 @@ const handlers: Record<string, Handler> = {
           : "Nenhum produto global configurado." },
       )
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
   },
 
   populacao: async (interaction, db) => {
@@ -632,21 +660,25 @@ const handlers: Record<string, Handler> = {
       )
       .setFooter({ text: "Consequências de revoltas são decididas pelo narrador." })
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
   },
 
   ano: async (interaction, db) => {
     const guildId = id(interaction);
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
     if (interaction.options.getSubcommand() === "avancar") {
       const result = processAnnualTurn(db, guildId, interaction.user.id, interaction.id);
-      await reply(
-        interaction,
-        `Ano **${result.year}** processado atomicamente.\nPaíses: ${result.summary.countries} · Receitas: ${formatNumber(result.summary.revenue, 2)} · Despesas: ${formatNumber(result.summary.expenses, 2)} · Produções concluídas: ${result.summary.completedOrders} · Déficit alimentar: ${formatNumber(result.summary.foodDeficit, 2)} · Ofertas expiradas: ${result.summary.expiredOffers}\nRegistro: \`${result.runId}\``,
-      );
+      await interaction.editReply({
+        content: `Ano **${result.year}** processado atomicamente.\nPaíses: ${result.summary.countries} · Receitas: ${formatNumber(result.summary.revenue, 2)} · Despesas: ${formatNumber(result.summary.expenses, 2)} · Produções concluídas: ${result.summary.completedOrders} · Déficit alimentar: ${formatNumber(result.summary.foodDeficit, 2)} · Ofertas expiradas: ${result.summary.expiredOffers}\nRegistro: \`${result.runId}\``,
+        allowedMentions: { parse: [] },
+      });
       return;
     }
     const result = undoAnnualTurn(db, guildId, interaction.user.id, interaction.id);
-    await reply(interaction, `Ano ${result.year} desfeito. O estado anterior foi restaurado; registros e reversões financeiras foram preservados.`);
+    await interaction.editReply({
+      content: `Ano ${result.year} desfeito. O estado anterior foi restaurado; registros e reversões financeiras foram preservados.`,
+      allowedMentions: { parse: [] },
+    });
   },
 
   historico: async (interaction, db) => {
@@ -662,7 +694,7 @@ const handlers: Record<string, Handler> = {
           ? annualRows.map((row) => `**Ano ${row.year}** · ${row.undone_at ? "desfeito" : "processado"} · \`${row.id.slice(0, 8)}\`\n${Object.entries(JSON.parse(row.summary_json) as Record<string, number>).map(([key, value]) => `${key}: ${formatNumber(value, 2)}`).join(" · ")}`).join("\n\n").slice(0, 4000)
           : "Nenhum ano processado.")
         .setColor(0x315e56);
-      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+      await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
       return;
     }
     if (subcommand === "auditoria") {
@@ -709,7 +741,7 @@ const handlers: Record<string, Handler> = {
       )
       .setFooter({ text: "Desfazer um ano é bloqueado se o estado do jogo tiver mudado depois dele." })
       .setColor(0x315e56);
-    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral });
+    await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
   },
 
   ping: async (interaction) => {
@@ -733,7 +765,9 @@ export async function handleCommand(interaction: ChatInputCommandInteraction, db
         error: error instanceof Error ? error.message : "unknown error",
       });
     }
-    if (interaction.deferred || interaction.replied) {
+    if (interaction.deferred) {
+      await interaction.editReply({ content: message, allowedMentions: { parse: [] } });
+    } else if (interaction.replied) {
       await interaction.followUp({ content: message, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
     } else {
       await interaction.reply({ content: message, flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
