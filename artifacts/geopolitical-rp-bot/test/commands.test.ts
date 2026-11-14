@@ -8,7 +8,6 @@ test("all requested slash-command categories are registered with unique valid na
     "configurar",
     "pais",
     "jogador",
-    "permissao",
     "indicador",
     "economia",
     "transferir",
@@ -18,6 +17,12 @@ test("all requested slash-command categories are registered with unique valid na
     "populacao",
     "ano",
     "historico",
+    "narrador",
+    "saldo",
+    "gastar",
+    "dinheiro",
+    "rendimento",
+    "ranking",
     "ajuda",
     "ping",
   ];
@@ -32,4 +37,7 @@ test("all requested slash-command categories are registered with unique valid na
   const inventoryCommand = commandBuilders.find((command) => command.name === "inventario");
   const inventorySubcommands = inventoryCommand?.options?.map((option) => option.name);
   assert.ok(inventorySubcommands?.includes("categoria"));
+  assert.ok(inventorySubcommands?.includes("painel"));
+  assert.ok(!names.includes("permissao"));
+  assert.ok(names.includes("ranking"));
 });
