@@ -253,7 +253,7 @@ export function listCountryInventory(
   guildId: string,
   actorId: string,
   countryId: number,
-): Array<{ id: number; name: string; category: string; quantity: number; unit: string }> {
+): Array<{ id: number; name: string; category: string; quantity: number; annual_production: number; annual_consumption: number; unit: string }> {
   requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "inventory" as PermissionSystem, "read");
   return db.prepare(
     `SELECT i.id, i.name,
