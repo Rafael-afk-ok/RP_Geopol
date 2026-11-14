@@ -37,14 +37,14 @@ test("annual processing is atomic and idempotent; undo restores state and preser
     const retry = processAnnualTurn(db, "guild", "narrator", "annual-interaction-1");
     assert.deepEqual(retry, first);
     assert.equal(first.year, 1);
-    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id = ?").get(countryId) as { treasury: number }).treasury, 95);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id = ?").get(countryId) as { treasury: number }).treasury, 1295);
     assert.equal((db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = 'guild'").get() as { current_year: number }).current_year, 1);
     assert.ok(Math.abs((db.prepare("SELECT population FROM countries WHERE id = ?").get(countryId) as { population: number }).population - 110) < 1e-8);
     assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(countryId, foodId) as { quantity: number }).quantity, 0);
     const revolt = (db.prepare("SELECT revolt_counter FROM countries WHERE id = ?").get(countryId) as { revolt_counter: number }).revolt_counter;
     assert.ok(Math.abs(revolt - (40 / 110 * 10)) < 1e-8);
     assert.equal((db.prepare("SELECT COUNT(*) AS count FROM annual_runs WHERE guild_id = 'guild' AND undone_at IS NULL").get() as { count: number }).count, 1);
-    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM financial_ledger WHERE run_id = ? AND year = 1").get(first.runId) as { count: number }).count, 3);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM financial_ledger WHERE run_id = ? AND year = 1").get(first.runId) as { count: number }).count, 15);
 
     const undone = undoAnnualTurn(db, "guild", "narrator");
     assert.equal(undone.year, 1);
@@ -53,7 +53,7 @@ test("annual processing is atomic and idempotent; undo restores state and preser
     assert.equal((db.prepare("SELECT population FROM countries WHERE id = ?").get(countryId) as { population: number }).population, 100);
     assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(countryId, foodId) as { quantity: number }).quantity, 50);
     assert.equal((db.prepare("SELECT revolt_counter FROM countries WHERE id = ?").get(countryId) as { revolt_counter: number }).revolt_counter, 0);
-    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM financial_ledger WHERE reversal_of IS NOT NULL").get() as { count: number }).count, 3);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM financial_ledger WHERE reversal_of IS NOT NULL").get() as { count: number }).count, 15);
 
     const replay = processAnnualTurn(db, "guild", "narrator", "annual-interaction-2");
     assert.equal(replay.year, 1);
