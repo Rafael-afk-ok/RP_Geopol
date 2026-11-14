@@ -7,6 +7,7 @@ import { adjustBalance } from "./economy.js";
 import { changeInventory } from "./inventory.js";
 import { hasNarratorPermission, requireCountryOrNarratorPermission, requireNarratorPermission } from "./permissions.js";
 import { runIdempotently } from "./idempotency.js";
+import { assertBilateralTradeAllowed } from "./international-trade.js";
 
 function roundMoney(amount: number, decimals: number): number {
   const scale = 10 ** decimals;
@@ -121,6 +122,7 @@ export function buyPlayerOffer(
       | undefined;
     assertDomain(offer && offer.status === "open", "Oferta indisponível.");
     assertDomain(offer.seller_country_id !== buyerCountryId, "O país não pode comprar sua própria oferta.");
+    assertBilateralTradeAllowed(db, guildId, offer.seller_country_id, buyerCountryId, offer.item_id);
     assertDomain(quantity <= offer.remaining_quantity + 1e-9, "A quantidade excede o saldo restante da oferta.");
     const seller = db.prepare("SELECT id FROM countries WHERE id = ? AND status = 'active'").get(offer.seller_country_id);
     const buyer = db.prepare("SELECT id FROM countries WHERE id = ? AND guild_id = ? AND status = 'active'").get(
@@ -132,7 +134,10 @@ export function buyPlayerOffer(
       guildId,
     ) as { currency_decimals: number; current_year: number };
     const total = roundMoney(offer.unit_price * quantity, settings.currency_decimals);
+    const tariffPercent = (db.prepare("SELECT import_tariff_percent FROM country_trade_settings WHERE country_id = ?").get(buyerCountryId) as { import_tariff_percent: number } | undefined)?.import_tariff_percent ?? 0;
+    const tariff = roundMoney(total * tariffPercent / 100, settings.currency_decimals);
     adjustBalance(db, buyerCountryId, guildId, actorId, -total, "market_purchase", `Compra da oferta ${offerId}`);
+    if (tariff > 0) adjustBalance(db, buyerCountryId, guildId, actorId, -tariff, "import_tariff", `Tarifa de importação · oferta ${offerId}`);
     adjustBalance(db, offer.seller_country_id, guildId, actorId, total, "market_sale", `Venda da oferta ${offerId}`);
     changeInventory(db, buyerCountryId, offer.item_id, quantity);
     const remaining = Math.max(0, offer.remaining_quantity - quantity);
@@ -157,8 +162,8 @@ export function buyPlayerOffer(
       settings.current_year,
       actorId,
     );
-    audit(db, guildId, actorId, "buy_market_offer", "market_trade", tradeId, { offerId, quantity, total });
-    return { tradeId, total };
+    audit(db, guildId, actorId, "buy_market_offer", "market_trade", tradeId, { offerId, quantity, total, tariff });
+    return { tradeId, total: total + tariff };
   });
 }
 

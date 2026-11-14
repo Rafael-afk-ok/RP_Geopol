@@ -19,6 +19,8 @@ import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer
 import { assignArmyEquipment, configureArmySize, configureConsumptionRule, configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
 import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, isMainNarrator, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission } from "../services/permissions.js";
 import { cancelProduction, listProductionQueue, startProduction } from "../services/production.js";
+import { getMilitaryStatus, modernizeMilitaryEquipment } from "../services/military.js";
+import { acceptTradeContract, cancelTradeContract, createTradeContract, liftTradeRestriction, listSupplierDependencies, listTradeContracts, listTradeRestrictions, setImportTariff, setTradeRestriction } from "../services/international-trade.js";
 
 type Handler = (interaction: ChatInputCommandInteraction, db: Database.Database) => Promise<void>;
 
@@ -799,6 +801,98 @@ const handlers: Record<string, Handler> = {
     await reply(interaction, `Consumo anual configurado: cada ${target === "population" ? "habitante" : "soldado"} de ${getCountryForView(db, guildId, interaction.user.id, countryId).name} consumirá ${formatNumber(quantity, 4)} unidade(s) de ${interaction.options.getString("item", true)} por ano.`);
   },
 
+  militar: async (interaction, db) => {
+    const guildId = id(interaction);
+    const countryId = countryNumber(interaction, db);
+    if (interaction.options.getSubcommand() === "consultar") {
+      const status = getMilitaryStatus(db, guildId, interaction.user.id, countryId);
+      const equipment = status.equipment.length
+        ? status.equipment.map((row) => `**${row.name}:** ${formatNumber(row.assigned_soldiers, 0)} soldados · manutenção ${formatNumber(row.assigned_soldiers * row.annual_maintenance, 2)}/ano`).join("\n")
+        : "Nenhum equipamento atribuído.";
+      const embed = new EmbedBuilder().setTitle(`Prontidão militar · ${status.name}`)
+        .addFields(
+          { name: "Prontidão", value: `${formatNumber(status.military_readiness, 1)}%`, inline: true },
+          { name: "Efetivo", value: formatNumber(status.army_size, 0), inline: true },
+          { name: "Equipados", value: formatNumber(status.assigned, 0), inline: true },
+          { name: "Sem equipamento", value: formatNumber(status.unassigned, 0), inline: true },
+          { name: "Manutenção anual atribuída", value: formatNumber(status.maintenance, 2), inline: true },
+        ).setDescription(equipment).setFooter({ text: "A prontidão é recalculada anualmente conforme abastecimento e cobertura de equipamentos." }).setColor(status.military_readiness >= 70 ? 0x27865b : status.military_readiness >= 40 ? 0xc28b2c : 0xa94442);
+      await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+      return;
+    }
+    const oldItemId = itemIdByName(db, guildId, interaction.options.getString("equipamento_antigo", true));
+    const newItemId = itemIdByName(db, guildId, interaction.options.getString("equipamento_novo", true));
+    const quantity = interaction.options.getNumber("quantidade", true);
+    const result = modernizeMilitaryEquipment(db, guildId, interaction.user.id, countryId, oldItemId, newItemId, quantity);
+    await reply(interaction, `Modernização concluída: ${formatNumber(quantity, 2)} unidade(s). Custo: ${formatNumber(result.cost, 2)}. Materiais consumidos: ${result.materials.length ? result.materials.map((m) => `${m.name} × ${formatNumber(m.quantity, 2)}`).join(", ") : "nenhum"}. Desatribua os soldados antes de modernizar equipamentos em uso.`);
+  },
+
+  comercio: async (interaction, db) => {
+    const guildId = id(interaction);
+    const subcommand = interaction.options.getSubcommand();
+    if (subcommand === "contrato-criar") {
+      const seller = countryIdByName(db, guildId, interaction.options.getString("vendedor", true));
+      const buyer = countryIdByName(db, guildId, interaction.options.getString("comprador", true));
+      const item = itemIdByName(db, guildId, interaction.options.getString("item", true));
+      const contractId = createTradeContract(db, guildId, interaction.user.id, seller, buyer, item,
+        interaction.options.getNumber("quantidade_anual", true), interaction.options.getNumber("preco_unitario", true),
+        interaction.options.getInteger("duracao", true), interaction.options.getString("termos") ?? "");
+      await reply(interaction, `Proposta de contrato criada: \`${contractId.slice(0, 8)}\`. O país comprador precisa aceitar com /comercio contrato-aceitar. A execução começa no próximo fechamento anual.`);
+      return;
+    }
+    if (subcommand === "contrato-aceitar") {
+      acceptTradeContract(db, guildId, interaction.user.id, interaction.options.getString("id", true));
+      await reply(interaction, "Contrato aceito. As entregas e os pagamentos ocorrerão automaticamente a cada fechamento anual.");
+      return;
+    }
+    if (subcommand === "contrato-cancelar") {
+      cancelTradeContract(db, guildId, interaction.user.id, interaction.options.getString("id", true));
+      await reply(interaction, "Contrato cancelado.");
+      return;
+    }
+    if (subcommand === "tarifa") {
+      const countryId = countryIdByName(db, guildId, interaction.options.getString("pais", true));
+      const percent = interaction.options.getNumber("percentual", true);
+      setImportTariff(db, guildId, interaction.user.id, countryId, percent);
+      await reply(interaction, `Tarifa de importação definida em ${formatNumber(percent, 2)}%.`);
+      return;
+    }
+    if (subcommand === "restricao-impor") {
+      const imposing = countryIdByName(db, guildId, interaction.options.getString("pais", true));
+      const target = countryIdByName(db, guildId, interaction.options.getString("alvo", true));
+      const kind = interaction.options.getString("tipo", true) as "embargo" | "blockade";
+      const itemName = interaction.options.getString("item");
+      const restrictionId = setTradeRestriction(db, guildId, interaction.user.id, imposing, target, kind,
+        itemName ? itemIdByName(db, guildId, itemName) : null, interaction.options.getString("motivo", true));
+      await reply(interaction, `${kind === "embargo" ? "Embargo" : "Bloqueio comercial"} imposto. ID: \`${restrictionId.slice(0, 8)}\`.`);
+      return;
+    }
+    if (subcommand === "restricao-levantar") {
+      liftTradeRestriction(db, guildId, interaction.user.id, interaction.options.getString("id", true));
+      await reply(interaction, "Restrição comercial levantada.");
+      return;
+    }
+    if (subcommand === "dependencia") {
+      const countryId = countryIdByName(db, guildId, interaction.options.getString("pais", true));
+      requireCountryOrNarratorPermission(db, guildId, countryId, interaction.user.id, "market", "read");
+      const rows = listSupplierDependencies(db, guildId, countryId);
+      const description = rows.length
+        ? rows.map((row) => `**${row.item}** · ${row.supplier}: ${formatNumber(row.share * 100, 1)}% (${formatNumber(row.quantity, 2)} unidades em 5 anos)${row.share >= 0.5 ? " · DEPENDÊNCIA ALTA" : ""}`).join("\n").slice(0, 3900)
+        : "Não há histórico suficiente de contratos internacionais executados nos últimos cinco anos.";
+      const embed = new EmbedBuilder().setTitle("Dependência de fornecedores").setDescription(description).setFooter({ text: "Participação calculada pelo volume importado em contratos internacionais nos últimos cinco anos." }).setColor(0x315e56);
+      await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+      return;
+    }
+    const contracts = listTradeContracts(db, guildId);
+    const restrictions = listTradeRestrictions(db, guildId);
+    const embed = new EmbedBuilder().setTitle("Comércio internacional")
+      .addFields(
+        { name: "Contratos", value: contracts.length ? contracts.map((row) => `\`${row.id.slice(0, 8)}\` · ${row.seller} → ${row.buyer} · ${row.item} × ${formatNumber(row.quantity_per_year, 2)}/ano · ${row.status === "pending" ? "aguardando aceite" : row.remaining_years === 0 ? "indefinido" : `${row.remaining_years} ano(s)`}\n${row.last_result}`).join("\n").slice(0, 1000) : "Nenhum contrato ativo ou pendente." },
+        { name: "Embargos e bloqueios", value: restrictions.length ? restrictions.map((row) => `\`${row.id.slice(0, 8)}\` · ${row.imposer} → ${row.target} · ${row.kind === "embargo" ? "embargo" : "bloqueio"}${row.item ? " · " + row.item : " · geral"}`).join("\n").slice(0, 1000) : "Nenhuma restrição ativa." },
+      ).setFooter({ text: "Tarifas incidem sobre importações; contratos são liquidados automaticamente no fechamento anual." }).setColor(0x315e56);
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+  },
+
   exercito: async (interaction, db) => {
     const guildId = id(interaction);
     const countryId = countryNumber(interaction, db);
@@ -861,7 +955,7 @@ const handlers: Record<string, Handler> = {
         .setColor(0x315e56)
         .setFooter({ text: "Os preços são reajustados no fechamento anual." });
       await interaction.editReply({
-        content: `Ano **${result.year}** processado atomicamente.\nPaíses: ${result.summary.countries} · Receitas: ${formatNumber(result.summary.revenue, 2)} (impostos: ${formatNumber(result.summary.taxRevenue, 2)} · exportações: ${formatNumber(result.summary.exportRevenue, 2)}) · Despesas: ${formatNumber(result.summary.expenses, 2)} · Produções concluídas: ${result.summary.completedOrders}\nDéficit populacional: ${formatNumber(result.summary.populationShortage, 2)} · Déficit militar: ${formatNumber(result.summary.armyShortage, 2)}\nAcordos executados: ${result.summary.transfersApplied} · Parcelas suspensas por falta de saldo/estoque: ${result.summary.transfersFailed} · Ofertas expiradas: ${result.summary.expiredOffers}\nRegistro: \`${result.runId}\``,
+        content: `Ano **${result.year}** processado atomicamente.\nPaíses: ${result.summary.countries} · Receitas: ${formatNumber(result.summary.revenue, 2)} (impostos: ${formatNumber(result.summary.taxRevenue, 2)} · exportações: ${formatNumber(result.summary.exportRevenue, 2)}) · Despesas: ${formatNumber(result.summary.expenses, 2)} · Produções concluídas: ${result.summary.completedOrders}\nDéficit populacional: ${formatNumber(result.summary.populationShortage, 2)} · Déficit militar: ${formatNumber(result.summary.armyShortage, 2)}\nAcordos executados: ${result.summary.transfersApplied} · Parcelas suspensas por falta de saldo/estoque: ${result.summary.transfersFailed} · Ofertas expiradas: ${result.summary.expiredOffers}\nContratos internacionais: ${result.summary.tradeContractsApplied} executados / ${result.summary.tradeContractsFailed} suspensos · Tarifas: ${formatNumber(result.summary.tradeTariffs, 2)}\nRegistro: \`${result.runId}\``,
         embeds: [priceEmbed],
         allowedMentions: { parse: [] },
       });
@@ -1073,6 +1167,9 @@ const handlers: Record<string, Handler> = {
         { name: "6. Mercado mundial", value: "`/inventario estoque-global` configura estoque inicial, preços, capacidade máxima e reposição anual. O estoque é limitado pela capacidade e recebe a reposição definida pelo Narrador em cada avanço de ano. Compras e vendas afetam os preços anuais." },
         { name: "7. Abastecimento", value: "Se faltar alimento, o bot compra o disponível no mercado global; usa o tesouro e financia a diferença por inflação. Se o mercado não tiver alimento suficiente, o déficit aumenta a revolta. Na fabricação, materiais ausentes são comprados automaticamente se houver estoque global e dinheiro; sem qualquer um dos dois, a ordem não é iniciada e o comando informa o motivo. Não há inflação automática para materiais industriais." },
         { name: "8. Fechamento anual", value: "O Narrador executa `/ano avancar`. O bot calcula rendimentos, impostos, produção, consumo, exportações, reposição do mercado, abastecimento, revolta e preços. `/ano desfazer` reverte o último fechamento se nenhum dado posterior tiver sido alterado." },
+        { name: "9. Manutenção e prontidão militar", value: "`/militar consultar` mostra prontidão, efetivo, equipamentos e custo anual de manutenção. A manutenção militar considera apenas equipamentos atribuídos; a prontidão muda a cada ano conforme abastecimento e cobertura de equipamentos." },
+        { name: "10. Modernização", value: "`/militar modernizar` troca equipamento antigo por um modelo militar novo, consumindo o custo monetário e os materiais exigidos pelo item novo. É necessário desatribuir os soldados do equipamento antigo antes da troca." },
+        { name: "11. Comércio internacional", value: "`/comercio contrato-criar` propõe exportações/importações recorrentes; o comprador aceita com `/comercio contrato-aceitar`. `/comercio tarifa` define tarifa de importação. `/comercio restricao-impor` aplica embargo ou bloqueio, e `/comercio restricao-levantar` remove a restrição. `/comercio dependencia` analisa fornecedores dos últimos cinco anos." },
       )
       .setFooter({ text: "Os comandos administrativos são privados; manual, rankings e painel de negociações são públicos." })
       .setColor(0x315e56);
