@@ -59,6 +59,12 @@ export const commandBuilders = [
     )
     .addSubcommand((subcommand) =>
       countryId(subcommand.setName("arquivar").setDescription("Arquiva um país (narrador autorizado)")),
+    )
+    .addSubcommand((subcommand) =>
+      countryId(subcommand.setName("excluir").setDescription("Remove o país dos ativos, preservando histórico (narrador)")),
+    )
+    .addSubcommand((subcommand) =>
+      countryId(subcommand.setName("geral").setDescription("Visão geral nacional com economia, população, exército, produção e rankings")),
     ),
 
   new SlashCommandBuilder()
@@ -307,7 +313,9 @@ export const commandBuilders = [
     .setName("ano")
     .setDescription("Processa ou desfaz um avanço anual")
     .addSubcommand((subcommand) => subcommand.setName("avancar").setDescription("Processa o próximo ano atomicamente"))
-    .addSubcommand((subcommand) => subcommand.setName("desfazer").setDescription("Restaura o estado anterior ao último ano (sem alterações posteriores)")),
+    .addSubcommand((subcommand) => subcommand.setName("desfazer").setDescription("Restaura o estado anterior ao último ano (sem alterações posteriores)"))
+    .addSubcommand((subcommand) => subcommand.setName("definir").setDescription("Define o ano atual (narrador)")
+      .addIntegerOption((option) => option.setName("ano").setDescription("Ano com quatro dígitos").setRequired(true).setMinValue(1000).setMaxValue(9999)),
 
   new SlashCommandBuilder()
     .setName("historico")
