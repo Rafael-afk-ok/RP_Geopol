@@ -10,7 +10,7 @@ import type Database from "better-sqlite3";
 import { assertDomain, DomainError } from "../domain/errors.js";
 import { audit } from "../services/audit.js";
 import { processAnnualTurn, undoAnnualTurn, listAnnualRuns } from "../services/annual.js";
-import { addEconomyEntry, adjustBalance, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
+import { adjustBalance, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
 import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
 import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock } from "../services/inventory.js";
@@ -372,27 +372,6 @@ const handlers: Record<string, Handler> = {
         annualIncome: interaction.options.getNumber("renda_anual", true),
       });
       await reply(interaction, `Limites e rendimento anual atualizados.`);
-      return;
-    }
-    if (subcommand === "lancar") {
-      requireNarratorPermission(db, guildId, interaction.user.id, "economy", "edit");
-      const settings = db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = ?").get(guildId) as
-        | { current_year: number }
-        | undefined;
-      const dueYear = interaction.options.getInteger("ano") ?? (settings?.current_year ?? 0) + 1;
-      const entryId = addEconomyEntry(
-        db,
-        guildId,
-        interaction.user.id,
-        countryId,
-        interaction.options.getString("tipo", true) as "income" | "expense",
-        interaction.options.getNumber("valor", true),
-        interaction.options.getString("descricao", true),
-        interaction.options.getString("frequencia", true) as "recurring" | "one_time",
-        dueYear,
-        interaction.id,
-      );
-      await reply(interaction, `Lançamento financeiro #${entryId} registrado para o ano ${dueYear}.`);
       return;
     }
     if (subcommand === "inflar") {
@@ -915,11 +894,18 @@ const handlers: Record<string, Handler> = {
     requireNarratorPermission(db, guildId, interaction.user.id, "economy", "edit");
     const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais", true));
     const signedAmount = interaction.options.getNumber("saldo", true);
-    assertDomain(Number.isFinite(signedAmount) && signedAmount !== 0, "O rendimento precisa ser diferente de zero.");
-    const settings = db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = ?").get(guildId) as { current_year: number } | undefined;
-    const dueYear = (settings?.current_year ?? 0) + 1;
-    const entryId = addEconomyEntry(db, guildId, interaction.user.id, country.id, signedAmount > 0 ? "income" : "expense", Math.abs(signedAmount), interaction.options.getString("motivo", true), "recurring", dueYear, interaction.id);
-    await reply(interaction, `Rendimento ${signedAmount > 0 ? "positivo" : "negativo"} registrado para ${country.name} a partir do ano ${dueYear}. Referência #${entryId}.`);
+    assertDomain(Number.isFinite(signedAmount) && signedAmount !== 0, "O valor precisa ser diferente de zero.");
+    const reason = interaction.options.getString("motivo", true);
+    adjustBalance(
+      db,
+      country.id,
+      guildId,
+      interaction.user.id,
+      signedAmount,
+      signedAmount > 0 ? "narrator_income" : "narrator_expense",
+      reason,
+    );
+    await reply(interaction, `${signedAmount > 0 ? "Rendimento" : "Despesa"} registrado imediatamente para **${country.name}**: ${signedAmount > 0 ? "+" : "−"} ${formatNumber(Math.abs(signedAmount), 2)}. Motivo: ${reason}`);
   },
 
   ajuda: async (interaction) => {
