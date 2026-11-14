@@ -173,11 +173,13 @@ export function setCountryProduction(
   itemId: number,
   annualProduction: number,
   annualConsumption: number,
+  annualExportPercent = 0,
 ): void {
   requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "production", "configure");
   assertDomain(
     Number.isFinite(annualProduction) && Number.isFinite(annualConsumption) &&
-      annualProduction >= 0 && annualConsumption >= 0,
+      Number.isFinite(annualExportPercent) && annualProduction >= 0 && annualConsumption >= 0 &&
+      annualExportPercent >= 0 && annualExportPercent <= 100,
     "Produção e consumo precisam ser valores finitos não negativos.",
   );
   const country = db.prepare("SELECT id FROM countries WHERE id = ? AND guild_id = ? AND status = 'active'").get(
@@ -187,14 +189,16 @@ export function setCountryProduction(
   const item = db.prepare("SELECT id FROM items WHERE id = ? AND guild_id = ?").get(itemId, guildId);
   assertDomain(country && item, "País ou item não encontrado.");
   db.prepare(
-    `INSERT INTO country_production (country_id, item_id, annual_production, annual_consumption)
-     VALUES (?, ?, ?, ?)
+    `INSERT INTO country_production (country_id, item_id, annual_production, annual_consumption, annual_export_percent)
+     VALUES (?, ?, ?, ?, ?)
      ON CONFLICT (country_id, item_id) DO UPDATE
-     SET annual_production = excluded.annual_production, annual_consumption = excluded.annual_consumption`,
-  ).run(countryId, itemId, annualProduction, annualConsumption);
+     SET annual_production = excluded.annual_production, annual_consumption = excluded.annual_consumption,
+       annual_export_percent = excluded.annual_export_percent`,
+  ).run(countryId, itemId, annualProduction, annualConsumption, annualExportPercent);
   audit(db, guildId, actorId, "configure_country_production", "production", `${countryId}:${itemId}`, {
     annualProduction,
     annualConsumption,
+    annualExportPercent,
   });
 }
 
