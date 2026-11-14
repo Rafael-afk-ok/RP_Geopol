@@ -27,7 +27,7 @@ pnpm --filter @workspace/geopolitical-rp-bot run dev
 
 Ao conectar, o bot registra seus comandos de barra automaticamente. Por padrão, o registro é global e pode demorar para aparecer no Discord. Para atualizações imediatas durante configuração, defina `DISCORD_GUILD_ID` com o ID do servidor: os comandos serão registrados apenas nele.
 
-O primeiro passo dentro do servidor é executar `/configurar principal`. O proprietário ou um administrador do servidor pode reivindicar essa configuração inicial. Se `DISCORD_OWNER_ID` estiver definido, esse usuário será o único autorizado a fazê-la.
+O primeiro passo dentro do servidor é executar `/configurar principal`. O proprietário ou um administrador do servidor pode reivindicar essa configuração inicial. Se `DISCORD_OWNER_ID` estiver definido, essa conta também será autorizada; administradores do servidor continuam autorizados.
 
 ## Banco de dados
 
