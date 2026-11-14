@@ -39,6 +39,9 @@ test("all requested slash-command categories are registered with unique valid na
   const personalSettings = commandBuilders.find((command) => command.name === "configuracoes");
   const personalSubcommands = personalSettings?.options?.map((option) => option.name);
   assert.deepEqual(personalSubcommands, ["pessoais"]);
+  const personalOptions = personalSettings?.options?.[0]?.options ?? [];
+  assert.deepEqual(personalOptions.map((option) => option.name), ["pais", "inflacao_automatica"]);
+  assert.ok(personalOptions.every((option) => option.required === false));
   const economyCommand = commandBuilders.find((command) => command.name === "economia");
   assert.ok(!economyCommand?.options?.some((option) => option.name === "inflacao-automatica"));
 
