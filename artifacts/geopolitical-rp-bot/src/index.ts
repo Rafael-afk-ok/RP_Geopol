@@ -48,7 +48,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       }
       const rows = db.prepare("SELECT amount, note FROM financial_ledger WHERE guild_id = ? AND country_id = ? AND year = ? ORDER BY rowid DESC LIMIT 25").all(interaction.guildId, countryId, year) as Array<{ amount: number; note: string }>;
       const description = rows.length
-        ? rows.map((row) => `**${row.amount >= 0 ? "+" : "−"} ${Math.abs(row.amount).toLocaleString("pt-BR")}** — ${row.note}`).join("\\n").slice(0, 4000)
+        ? rows.map((row) => `**${row.amount >= 0 ? "+" : "−"} ${Math.abs(row.amount).toLocaleString("pt-BR")}** — ${row.note}`).join("\n").slice(0, 4000)
         : "Nenhuma movimentação financeira registrada neste ano.";
       const embed = new EmbedBuilder().setTitle(`Detalhamento financeiro · ${country.name}`).setDescription(description).setFooter({ text: `Ano ${year} · até 25 movimentações mais recentes` }).setColor(0x315e56);
       await interaction.reply({ embeds: [embed], flags: MessageFlags.Ephemeral, allowedMentions: { parse: [] } });
