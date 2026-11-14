@@ -16,10 +16,10 @@ test("all requested slash-command categories are registered with unique valid na
   const names = commandBuilders.map((command) => command.name);
   const expected = [
     "configurar",
-    "configuracoes",
     "pais",
     "jogador",
     "indicador",
+    "configuracoes",
     "economia",
     "transferir",
     "inventario",
