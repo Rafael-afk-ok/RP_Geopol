@@ -266,6 +266,24 @@ export const commandBuilders = [
     ),
 
   new SlashCommandBuilder()
+    .setName("negociacao").setDescription("Gerencia acordos anuais recorrentes entre países")
+    .addSubcommand((sub) => sub.setName("criar").setDescription("Cria um acordo anual com outro país")
+      .addStringOption((o) => o.setName("pais").setDescription("Outro país envolvido").setRequired(true).setMaxLength(80))
+      .addStringOption((o) => o.setName("direcao").setDescription("Enviar do seu país ou receber do outro").setRequired(true).addChoices({name:"Enviar",value:"send"},{name:"Receber",value:"receive"}))
+      .addStringOption((o) => o.setName("tipo").setDescription("Tipo de transferência").setRequired(true).addChoices({name:"Dinheiro",value:"money"},{name:"Recurso",value:"item"}))
+      .addNumberOption((o) => o.setName("quantidade").setDescription("Quantidade por ano").setRequired(true).setMinValue(0.0001))
+      .addIntegerOption((o) => o.setName("duracao").setDescription("Anos; 0 = até cancelar").setRequired(true).setMinValue(0))
+      .addStringOption((o) => o.setName("item").setDescription("Nome do recurso (obrigatório para tipo Recurso)").setRequired(false).setMaxLength(80))
+      .addStringOption((o) => o.setName("descricao").setDescription("Termos do acordo").setRequired(false).setMaxLength(200)))
+    .addSubcommand((sub) => sub.setName("painel").setDescription("Mostra acordos ativos e seu estado"))
+    .addSubcommand((sub) => sub.setName("editar").setDescription("Edita quantidade e duração de um acordo")
+      .addStringOption((o) => o.setName("id").setDescription("ID exibido no painel").setRequired(true).setMaxLength(36))
+      .addNumberOption((o) => o.setName("quantidade").setDescription("Nova quantidade anual").setRequired(true).setMinValue(0.0001))
+      .addIntegerOption((o) => o.setName("duracao").setDescription("Anos restantes; 0 = infinito").setRequired(true).setMinValue(0)))
+    .addSubcommand((sub) => sub.setName("cancelar").setDescription("Cancela um acordo ativo")
+      .addStringOption((o) => o.setName("id").setDescription("ID exibido no painel").setRequired(true).setMaxLength(36))),
+
+  new SlashCommandBuilder()
     .setName("consumo").setDescription("Configura consumo anual por população ou soldado (narrador)")
     .addSubcommand((sub) => sub.setName("configurar").setDescription("Define quanto cada unidade consome de um item por ano")
       .addStringOption((o) => o.setName("pais").setDescription("País").setRequired(true).setMaxLength(80))
