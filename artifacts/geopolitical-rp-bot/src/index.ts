@@ -129,7 +129,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   try {
     // Acknowledge immediately: Discord invalidates unacknowledged interactions after 3 seconds.
-    await commandInteraction.deferReply({ flags: MessageFlags.Ephemeral });
+    const isPublicCommand = commandInteraction.commandName === "ajuda" ||
+      commandInteraction.commandName === "ranking" ||
+      (commandInteraction.commandName === "negociacao" && commandInteraction.options.getSubcommand() === "painel");
+    await commandInteraction.deferReply(isPublicCommand ? {} : { flags: MessageFlags.Ephemeral });
 
     if (!commandInteraction.guildId) {
       await commandInteraction.editReply({
