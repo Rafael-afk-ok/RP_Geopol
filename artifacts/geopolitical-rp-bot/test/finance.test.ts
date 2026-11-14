@@ -62,3 +62,21 @@ test("country membership grants full control only within that country", () => {
     closeTestDatabase(db);
   }
 });
+
+test("signed narrator adjustments update the treasury and current-year ledger immediately", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { name: "Testland", treasury: 100 });
+    adjustBalance(db, countryId, "guild", "narrator", 500, "narrator_income", "Exportação de ferro");
+    adjustBalance(db, countryId, "guild", "narrator", -125, "narrator_expense", "Importação de grãos");
+    const country = db.prepare("SELECT treasury FROM countries WHERE id = ?").get(countryId) as { treasury: number };
+    const ledger = db.prepare("SELECT amount, note FROM financial_ledger WHERE country_id = ? ORDER BY rowid").all(countryId) as Array<{ amount: number; note: string }>;
+    assert.equal(country.treasury, 475);
+    assert.deepEqual(ledger.map((entry) => [entry.amount, entry.note]), [
+      [500, "Exportação de ferro"],
+      [-125, "Importação de grãos"],
+    ]);
+  } finally {
+    closeTestDatabase(db);
+  }
+});
