@@ -69,8 +69,9 @@ export function configureConsumptionRule(
 ): void {
   requireNarratorPermission(db, guildId, actorId, "population", "configure");
   assertDomain(Number.isFinite(quantityPerUnit) && quantityPerUnit >= 0, "O consumo por unidade deve ser um número não negativo.");
-  const item = db.prepare("SELECT id FROM items WHERE id = ? AND guild_id = ?").get(itemId, guildId);
+  const item = db.prepare("SELECT id, category FROM items WHERE id = ? AND guild_id = ?").get(itemId, guildId) as { id: number; category: string } | undefined;
   assertDomain(item, "Item não encontrado neste servidor.");
+  assertDomain(item.category !== "military", "Equipamentos militares são duráveis e não podem ser configurados como consumo anual.");
   const country = db.prepare("SELECT id FROM countries WHERE id = ? AND guild_id = ? AND status = 'active'").get(countryId, guildId);
   assertDomain(country, "País não encontrado ou arquivado.");
   db.prepare(`INSERT INTO country_consumption_rules (country_id, item_id, target, quantity_per_unit, updated_by)
@@ -98,7 +99,7 @@ export function assignArmyEquipment(
   requireNarratorPermission(db, guildId, actorId, "population", "configure");
   assertDomain(Number.isSafeInteger(soldiers) && soldiers >= 0, "A quantidade equipada precisa ser um inteiro não negativo.");
   const item = db.prepare("SELECT category FROM items WHERE id = ? AND guild_id = ?").get(itemId, guildId) as { category: string } | undefined;
-  assertDomain(item?.category === "military", "Somente itens da categoria Militar podem ser atribuídos ao exército.");
+  assertDomain(item && (item.category === "military" || item.category === "custom"), "O item precisa ser militar ou personalizado para ser atribuído ao exército.");
   const country = db.prepare("SELECT army_size FROM countries WHERE id = ? AND guild_id = ? AND status = 'active'").get(countryId, guildId) as { army_size: number } | undefined;
   assertDomain(country, "País não encontrado ou arquivado.");
   const others = db.prepare("SELECT COALESCE(SUM(assigned_soldiers), 0) AS total FROM army_equipment_assignments WHERE country_id = ? AND item_id <> ?").get(countryId, itemId) as { total: number };
