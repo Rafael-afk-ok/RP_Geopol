@@ -195,6 +195,8 @@ export const commandBuilders = [
   new SlashCommandBuilder()
     .setName("inventario")
     .setDescription("Gerencia itens, estoques e produção anual")
+    .addSubcommand((subcommand) => subcommand.setName("painel").setDescription("Abre o inventário nacional por categorias")
+      .addStringOption((option) => option.setName("pais").setDescription("Nome do país (opcional se você controla apenas um)").setRequired(false).setMaxLength(80)))
     .addSubcommand((subcommand) =>
       subcommand.setName("categoria").setDescription("Cria uma categoria personalizada de itens")
         .addStringOption((option) => option.setName("nome").setDescription("Nome da categoria").setRequired(true).setMaxLength(60))
@@ -377,6 +379,16 @@ export const commandBuilders = [
       .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
       .addNumberOption((option) => option.setName("saldo").setDescription("Valor positivo ou negativo").setRequired(true))
       .addStringOption((option) => option.setName("motivo").setDescription("Motivo obrigatório").setRequired(true).setMaxLength(200))),
+
+  new SlashCommandBuilder().setName("ranking").setDescription("Classificações nacionais")
+    .addStringOption((option) => option.setName("tipo").setDescription("Indicador do ranking").setRequired(true)
+      .addChoices(
+        { name: "Economia (saldo)", value: "economy" },
+        { name: "População", value: "population" },
+        { name: "Produção anual", value: "production" },
+        { name: "Estoques", value: "stock" },
+        { name: "Crescimento econômico", value: "growth" },
+      )),
 
   new SlashCommandBuilder().setName("ajuda").setDescription("Lista comandos e primeiros passos"),
   new SlashCommandBuilder().setName("ping").setDescription("Verifica se o bot está respondendo"),
