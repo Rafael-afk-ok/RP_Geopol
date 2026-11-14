@@ -63,7 +63,11 @@ export const commandBuilders = [
       countryId(subcommand.setName("arquivar").setDescription("Arquiva um país (narrador autorizado)")),
     )
     .addSubcommand((subcommand) =>
-      countryId(subcommand.setName("excluir").setDescription("Remove o país dos ativos, preservando histórico (narrador)")),
+      countryId(subcommand.setName("excluir").setDescription("EXCLUI DEFINITIVAMENTE o país e seus dados (irreversível)"))
+        .addBooleanOption((option) => option.setName("confirmar").setDescription("Confirma a exclusão permanente").setRequired(true)),
+    )
+    .addSubcommand((subcommand) =>
+      countryId(subcommand.setName("restaurar").setDescription("Reativa um país arquivado")),
     )
     .addSubcommand((subcommand) =>
       countryId(subcommand.setName("geral").setDescription("Visão geral nacional com economia, população, exército, produção e rankings")),
@@ -441,6 +445,15 @@ export const commandBuilders = [
       .addStringOption((o) => o.setName("id").setDescription("ID da restrição").setRequired(true).setMaxLength(36)))
     .addSubcommand((s) => s.setName("dependencia").setDescription("Analisa a dependência de fornecedores externos")
       .addStringOption((o) => o.setName("pais").setDescription("País importador").setRequired(true).setMaxLength(80))),
+
+  new SlashCommandBuilder()
+    .setName("dados")
+    .setDescription("Reinicia dados de países ou de todo o servidor")
+    .addSubcommand((s) => s.setName("zerar-pais").setDescription("Apaga os dados de um país, mas mantém seu cadastro e jogadores")
+      .addStringOption((o) => o.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
+      .addBooleanOption((o) => o.setName("confirmar").setDescription("Confirma a limpeza completa dos dados do país").setRequired(true)))
+    .addSubcommand((s) => s.setName("zerar-servidor").setDescription("APAGA todos os países, itens, mercados, relações e histórico")
+      .addStringOption((o) => o.setName("confirmacao").setDescription("Digite exatamente ZERAR SERVIDOR").setRequired(true).setMaxLength(40))),
 
 ].map((builder) => builder.toJSON());
 

@@ -12,7 +12,8 @@ import { assertDomain, DomainError } from "../domain/errors.js";
 import { audit } from "../services/audit.js";
 import { processAnnualTurn, undoAnnualTurn, listAnnualRuns } from "../services/annual.js";
 import { adjustBalance, configureCountryEconomy, configureInflation, issueInflation, repayInflation, roundCurrency, setAutomaticInflation, transferBetweenCountries } from "../services/economy.js";
-import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
+import { archiveCountry, createCountry, deleteCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, restoreCountry, updateCountry } from "../services/countries.js";
+import { resetCountryData, resetGuildData } from "../services/reset.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
 import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock, setItemProductionEnabled } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
@@ -227,11 +228,27 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, `País **${interaction.options.getString("nome", true)}** criado. Jogadores com o cargo serão associados automaticamente ao usar o bot.`);
       return;
     }
-    if (subcommand === "arquivar" || subcommand === "excluir") {
+    if (subcommand === "arquivar") {
       const countryId = countryNumber(interaction, db);
       const countryName = getCountryForView(db, guildId, interaction.user.id, countryId).name;
       archiveCountry(db, guildId, interaction.user.id, countryId);
-      await reply(interaction, `País **${countryName}** removido dos países ativos. O histórico financeiro e anual foi preservado.`);
+      await reply(interaction, `País **${countryName}** arquivado. O histórico foi preservado.`);
+      return;
+    }
+    if (subcommand === "restaurar") {
+      const name = interaction.options.getString("pais", true).trim();
+      const country = db.prepare("SELECT id FROM countries WHERE guild_id = ? AND status = 'archived' AND lower(name) = lower(?)")
+        .get(guildId, name) as { id: number } | undefined;
+      assertDomain(country, "País arquivado não encontrado.");
+      const restoredName = restoreCountry(db, guildId, interaction.user.id, country.id);
+      await reply(interaction, `País **${restoredName}** restaurado e ativo novamente. O cargo e os dados anteriores foram mantidos.`);
+      return;
+    }
+    if (subcommand === "excluir") {
+      assertDomain(interaction.options.getBoolean("confirmar", true), "Exclusão cancelada. Defina confirmar como verdadeiro para excluir permanentemente.");
+      const countryId = countryNumber(interaction, db);
+      const countryName = deleteCountry(db, guildId, interaction.user.id, countryId);
+      await reply(interaction, `País **${countryName}** e seus dados específicos foram excluídos definitivamente. O nome e o cargo podem ser reutilizados. O registro de auditoria foi preservado.`);
       return;
     }
     if (subcommand === "geral") {
@@ -1249,6 +1266,7 @@ const handlers: Record<string, Handler> = {
         { name: "8. Fechamento anual", value: "O Narrador executa `/ano avancar`. O bot calcula rendimentos, impostos, produção, consumo, exportações, reposição do mercado, abastecimento, revolta e preços. `/ano desfazer` reverte o último fechamento se nenhum dado posterior tiver sido alterado." },
         { name: "9. Manutenção e prontidão militar", value: "`/militar consultar` mostra prontidão, efetivo, equipamentos e custo anual de manutenção. A manutenção militar considera apenas equipamentos atribuídos; a prontidão muda a cada ano conforme abastecimento e cobertura de equipamentos." },
         { name: "10. Modernização", value: "`/militar modernizar` troca equipamento antigo por um modelo militar novo, consumindo o custo monetário e os materiais exigidos pelo item novo. É necessário desatribuir os soldados do equipamento antigo antes da troca." },
+        { name: "12. Recuperação e reinício", value: "`/pais restaurar` reativa um país arquivado. `/dados zerar-pais` limpa os dados de uma nação sem apagar seu cadastro. `/dados zerar-servidor` apaga toda a campanha, itens, mercados e histórico; somente o Narrador Supremo pode executar e exige digitar ZERAR SERVIDOR." },
         { name: "11. Comércio internacional", value: "`/comercio contrato-criar` propõe exportações/importações recorrentes; o comprador aceita com `/comercio contrato-aceitar`. `/comercio tarifa` define tarifa de importação. `/comercio restricao-impor` aplica embargo ou bloqueio, e `/comercio restricao-levantar` remove a restrição. `/comercio dependencia` analisa fornecedores dos últimos cinco anos." },
       )
       .setFooter({ text: "Os comandos administrativos são privados; manual, rankings e painel de negociações são públicos." })
@@ -1266,6 +1284,24 @@ const handlers: Record<string, Handler> = {
       new ButtonBuilder().setCustomId("ajuda:inicio").setLabel("Início").setStyle(ButtonStyle.Secondary),
     );
     await interaction.editReply({ embeds: [embed], components: [row1, row2], allowedMentions: { parse: [] } });
+  },
+
+  dados: async (interaction, db) => {
+    const guildId = id(interaction);
+    const subcommand = interaction.options.getSubcommand();
+    if (subcommand === "zerar-pais") {
+      assertDomain(interaction.options.getBoolean("confirmar", true), "Operação cancelada. Defina confirmar como verdadeiro.");
+      requireNarratorPermission(db, guildId, interaction.user.id, "countries", "archive");
+      const name = interaction.options.getString("pais", true).trim();
+      const country = db.prepare("SELECT id, name FROM countries WHERE guild_id = ? AND lower(name) = lower(?)")
+        .get(guildId, name) as { id: number; name: string } | undefined;
+      assertDomain(country, "País não encontrado.");
+      const resetName = resetCountryData(db, guildId, interaction.user.id, country.id);
+      await reply(interaction, `Dados de **${resetName}** zerados. O cadastro, cargo, estado ativo/arquivado e jogadores associados foram mantidos. Histórico anual do servidor foi limpo para impedir restauração de dados antigos.`);
+      return;
+    }
+    const removed = resetGuildData(db, guildId, interaction.user.id, interaction.options.getString("confirmacao", true));
+    await reply(interaction, `Servidor reiniciado. ${removed} país(es), itens, categorias, estoques, relações comerciais, contratos, transferências e históricos de jogo foram apagados. Configurações básicas, moeda, narrador principal, narradores e auditoria foram preservados. O ano voltou a zero.`);
   },
 
   ping: async (interaction) => {
