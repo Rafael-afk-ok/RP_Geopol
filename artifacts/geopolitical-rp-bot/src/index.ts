@@ -151,7 +151,8 @@ client.on(Events.InteractionCreate, async (interaction) => {
       commandInteraction.commandName === "ranking" ||
       (commandInteraction.commandName === "negociacao" && commandInteraction.options.getSubcommand() === "painel") ||
       (commandInteraction.commandName === "pais" && commandInteraction.options.getSubcommand() === "geral") ||
-      (commandInteraction.commandName === "mercado" && ["catalogo", "painel"].includes(commandInteraction.options.getSubcommand()));
+      (commandInteraction.commandName === "mercado" && ["catalogo", "painel"].includes(commandInteraction.options.getSubcommand())) ||
+      (commandInteraction.commandName === "ano" && commandInteraction.options.getSubcommand() === "avancar");
     await commandInteraction.deferReply(isPublicCommand ? {} : { flags: MessageFlags.Ephemeral });
 
     if (!commandInteraction.guildId) {
