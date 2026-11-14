@@ -120,6 +120,10 @@ export const commandBuilders = [
         .addNumberOption((option) => option.setName("limite_saldo").setDescription("Limite máximo; deixe vazio para ilimitado").setRequired(false).setMinValue(0)),
     )
     .addSubcommand((subcommand) =>
+      countryId(subcommand.setName("inflacao-automatica").setDescription("Ativa ou desativa o financiamento inflacionário automático do país"))
+        .addBooleanOption((option) => option.setName("habilitada").setDescription("Permitir emissão automática para compras de recursos").setRequired(true)),
+    )
+    .addSubcommand((subcommand) =>
       subcommand.setName("inflar").setDescription("Emite dinheiro voluntariamente para o país")
         .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("valor").setDescription("Valor emitido").setRequired(true).setMinValue(0.01)),
