@@ -87,6 +87,13 @@ function getCountryForView(db: Database.Database, guildId: string, userId: strin
   return getAccessibleCountry(db, guildId, userId, countryId);
 }
 
+function countryIdByName(db: Database.Database, guildId: string, name: string): number {
+  const country = db.prepare("SELECT id FROM countries WHERE guild_id = ? AND status = 'active' AND lower(name) = lower(?)")
+    .get(guildId, name.trim()) as { id: number } | undefined;
+  assertDomain(country, "País não encontrado ou arquivado.");
+  return country.id;
+}
+
 function resolveCommandCountry(db: Database.Database, guildId: string, userId: string, requestedName?: string) {
   if (requestedName) {
     const country = db.prepare("SELECT id, name, treasury FROM countries WHERE guild_id = ? AND status = 'active' AND lower(name) = lower(?)").get(guildId, requestedName.trim()) as { id: number; name: string; treasury: number } | undefined;
@@ -396,8 +403,8 @@ const handlers: Record<string, Handler> = {
       db,
       guildId,
       interaction.user.id,
-      interaction.options.getInteger("origem", true),
-      interaction.options.getInteger("destino", true),
+      countryIdByName(db, guildId, interaction.options.getString("origem", true)),
+      countryIdByName(db, guildId, interaction.options.getString("destino", true)),
       interaction.options.getNumber("valor", true),
       interaction.options.getString("descricao") ?? "Transferência entre países",
       interaction.id,
@@ -519,7 +526,7 @@ const handlers: Record<string, Handler> = {
     const embed = new EmbedBuilder()
       .setTitle(`Inventário do país ${countryNumber(interaction, db)}`)
       .setDescription(rows.length
-        ? rows.map((row) => `**${row.name}** · ${row.category}: ${formatNumber(row.quantity, 2)}${row.unit ? ` ${row.unit}` : ""} (ID ${row.id})`).join("\n").slice(0, 4000)
+        ? rows.map((row) => `**${row.name}** · ${row.category}: ${formatNumber(row.quantity, 2)}${row.unit ? ` ${row.unit}` : ""}`).join("\n").slice(0, 4000)
         : "Nenhum item configurado.")
       .setColor(0x315e56);
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
@@ -682,7 +689,7 @@ const handlers: Record<string, Handler> = {
           ? offers.slice(0, 10).map((offer) => `\`${offer.id.slice(0, 8)}\` · ${offer.item} × ${formatNumber(offer.remaining_quantity, 2)} · ${formatNumber(offer.unit_price, 2)} ${offer.currency_symbol} · expira no ano ${offer.expires_year}`).join("\n").slice(0, 1000)
           : "Nenhuma oferta aberta." },
         { name: "Mercado global", value: stock.length
-          ? stock.slice(0, 10).map((item) => `**${item.name}** (ID ${item.id}) · estoque ${formatNumber(item.quantity, 2)} · preço ${formatNumber(item.current_price, 2)} [${formatNumber(item.min_price, 2)}–${formatNumber(item.max_price, 2)}]`).join("\n").slice(0, 1000)
+          ? stock.slice(0, 10).map((item) => `**${item.name}** · estoque ${formatNumber(item.quantity, 2)} · preço ${formatNumber(item.current_price, 2)} [${formatNumber(item.min_price, 2)}–${formatNumber(item.max_price, 2)}]`).join("\n").slice(0, 1000)
           : "Nenhum produto global configurado." },
       )
       .setColor(0x315e56);
