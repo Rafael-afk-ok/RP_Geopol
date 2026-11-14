@@ -840,12 +840,12 @@ const handlers: Record<string, Handler> = {
               const percent = change.previous_price > 0 ? delta / change.previous_price * 100 : 0;
               const symbol = delta > 0.000001 ? "▲" : delta < -0.000001 ? "▼" : "•";
               return `${symbol} **${change.item}** · ${formatNumber(change.previous_price, 2)} → ${formatNumber(change.new_price, 2)} (${delta >= 0 ? "+" : ""}${formatNumber(percent, 2)}%)`;
-            }).join("\\n").slice(0, 4000)
+            }).join("\n").slice(0, 4000)
           : "Nenhum preço global foi alterado neste ano.")
         .setColor(0x315e56)
         .setFooter({ text: "Os preços são reajustados no fechamento anual." });
       await interaction.editReply({
-        content: `Ano **${result.year}** processado atomicamente.\\nPaíses: ${result.summary.countries} · Receitas: ${formatNumber(result.summary.revenue, 2)} · Despesas: ${formatNumber(result.summary.expenses, 2)} · Produções concluídas: ${result.summary.completedOrders}\\nDéficit populacional: ${formatNumber(result.summary.populationShortage, 2)} · Déficit militar: ${formatNumber(result.summary.armyShortage, 2)}\\nAcordos executados: ${result.summary.transfersApplied} · Parcelas suspensas por falta de saldo/estoque: ${result.summary.transfersFailed} · Ofertas expiradas: ${result.summary.expiredOffers}\\nRegistro: \`${result.runId}\``,
+        content: `Ano **${result.year}** processado atomicamente.\nPaíses: ${result.summary.countries} · Receitas: ${formatNumber(result.summary.revenue, 2)} · Despesas: ${formatNumber(result.summary.expenses, 2)} · Produções concluídas: ${result.summary.completedOrders}\nDéficit populacional: ${formatNumber(result.summary.populationShortage, 2)} · Déficit militar: ${formatNumber(result.summary.armyShortage, 2)}\nAcordos executados: ${result.summary.transfersApplied} · Parcelas suspensas por falta de saldo/estoque: ${result.summary.transfersFailed} · Ofertas expiradas: ${result.summary.expiredOffers}\nRegistro: \`${result.runId}\``,
         embeds: [priceEmbed],
         allowedMentions: { parse: [] },
       });
