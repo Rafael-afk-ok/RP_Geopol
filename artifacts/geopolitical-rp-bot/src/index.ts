@@ -33,6 +33,24 @@ client.once(Events.ClientReady, async (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isButton() && interaction.customId.startsWith("ajuda:")) {
+    const section = interaction.customId.slice("ajuda:".length);
+    const pages: Record<string, { title: string; description: string; fields?: Array<{ name: string; value: string }> }> = {
+      inicio: { title: "Manual · Começar", description: "Associe seu país pelo cargo do Discord. Use /pais geral para consultar sua situação, /saldo para finanças e /inventario painel para estoques." },
+      economia: { title: "Manual · Economia", description: "Jogadores podem consultar o tesouro e registrar gastos próprios. Narradores configuram renda, inflação e ajustes administrativos.", fields: [{ name: "Comandos", value: "`/saldo` · `/gastar` · `/rendimento adicionar` · `/dinheiro` · `/ano definir`" }] },
+      inventario: { title: "Manual · Inventário e produção", description: "O inventário separa recursos naturais, indústria e itens militares. Produção anual adiciona estoque; consumo anual remove apenas o que existe. Estoque nunca fica negativo.", fields: [{ name: "Comandos", value: "`/inventario painel` · `/inventario criar-item` · `/inventario producao-anual` · `/produzir`" }] },
+      populacao: { title: "Manual · População e abastecimento", description: "O narrador define crescimento e consumo por habitante e por item. No fechamento anual, o bot calcula a necessidade, desconta o estoque disponível e aumenta a revolta proporcionalmente à escassez.", fields: [{ name: "Comandos", value: "`/populacao definir` · `/consumo configurar` · `/configurar populacao`" }] },
+      exercito: { title: "Manual · Exército", description: "Defina o efetivo, configure consumo por soldado e atribua equipamentos. Equipamentos são duráveis: atribuí-los não destrói o item. A soma de soldados equipados não pode exceder o efetivo.", fields: [{ name: "Comandos", value: "`/exercito definir` · `/exercito equipamento` · `/exercito consultar` · `/consumo configurar`" }] },
+      negociacoes: { title: "Manual · Negociações anuais", description: "Jogadores podem criar acordos recorrentes de dinheiro ou recursos entre seus países. Duração 0 significa acordo indefinido. Os participantes podem editar ou cancelar os acordos. A transferência ocorre no fechamento anual e só é aplicada se houver saldo ou estoque suficiente.", fields: [{ name: "Comandos", value: "`/negociacao criar` · `/negociacao painel` · `/negociacao editar` · `/negociacao cancelar`" }] },
+      exemplo: { title: "Manual · Exemplo de turno", description: "1. O jogador consulta `/pais geral`. 2. Confere `/saldo` e `/inventario painel`. 3. Registra gastos com `/gastar`. 4. Cria um acordo com `/negociacao criar`. 5. O narrador confere consumo, produção e efetivo. 6. O narrador executa `/ano avancar`. 7. Todos consultam novamente a visão geral e os rankings." },
+      narrador: { title: "Manual · Narrador", description: "O Narrador Supremo configura o servidor e nomeia narradores. Narradores definem ano, crescimento populacional, efetivo, consumo por item, produção e regras econômicas. Use /ano desfazer apenas se o estado não tiver sido alterado depois do processamento.", fields: [{ name: "Comandos administrativos", value: "`/configurar` · `/pais criar` · `/consumo configurar` · `/exercito definir` · `/ano definir` · `/ano avancar`" }] },
+    };
+    const page = pages[section] ?? pages.inicio!;
+    const embed = new EmbedBuilder().setTitle(page.title).setDescription(page.description).setColor(0x315e56);
+    if (page.fields) embed.addFields(page.fields);
+    await interaction.update({ embeds: [embed], allowedMentions: { parse: [] } });
+    return;
+  }
   if (interaction.isButton() && interaction.customId.startsWith("inventario_pagina:")) {
     try {
       const [, countryIdRaw, categoryKey] = interaction.customId.split(":");
