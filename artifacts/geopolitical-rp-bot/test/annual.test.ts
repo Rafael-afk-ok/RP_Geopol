@@ -151,3 +151,78 @@ test("global market annual price increase is capped even after an oversized purc
     closeTestDatabase(db);
   }
 });
+
+
+test("population tax uses the agreed declining per-capita factor", () => {
+  const db = createTestDatabase();
+  try {
+    const cases = [
+      { population: 30_000_000, monthly: 30_000_000 },
+      { population: 150_000_000, monthly: 120_000_000 },
+      { population: 200_000_000, monthly: 160_000_000 },
+      { population: 250_000_000, monthly: 25_000_000 },
+      { population: 300_000_000, monthly: 30_000_000 },
+    ];
+    for (const [index, entry] of cases.entries()) {
+      const countryId = insertCountry(db, { name: `Tax ${index}`, population: entry.population });
+      processAnnualTurn(db, "guild", "narrator", `tax-case-${index}`);
+      const tax = (db.prepare(
+        "SELECT COALESCE(SUM(amount), 0) AS total FROM financial_ledger WHERE country_id = ? AND kind = 'population_tax'",
+      ).get(countryId) as { total: number }).total;
+      assert.equal(tax, entry.monthly * 12);
+      db.prepare("UPDATE guild_settings SET current_year = 0 WHERE guild_id = 'guild'").run();
+      db.prepare("UPDATE annual_runs SET undone_at = CURRENT_TIMESTAMP WHERE guild_id = 'guild'").run();
+    }
+  } finally {
+    closeTestDatabase(db);
+  }
+});
+
+test("annual exports credit revenue and market stock replenishes without exceeding capacity", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { name: "Exporter" });
+    const itemId = Number(db.prepare(
+      "INSERT INTO items (guild_id, name, category, global_tradeable, created_by) VALUES ('guild', 'Iron', 'common', 1, 'narrator')",
+    ).run().lastInsertRowid);
+    db.prepare(
+      "INSERT INTO country_production (country_id, item_id, annual_production, annual_consumption, annual_export_percent) VALUES (?, ?, 100, 0, 50)",
+    ).run(countryId, itemId);
+    db.prepare(
+      "INSERT INTO global_stock (guild_id, item_id, quantity, current_price, base_price, min_price, max_price, max_quantity, annual_replenishment) VALUES ('guild', ?, 0, 2, 2, 1, 10, 100, 20)",
+    ).run(itemId);
+    processAnnualTurn(db, "guild", "narrator", "annual-export-replenish");
+    const inventory = (db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(countryId, itemId) as { quantity: number }).quantity;
+    const stock = (db.prepare("SELECT quantity FROM global_stock WHERE guild_id = 'guild' AND item_id = ?").get(itemId) as { quantity: number }).quantity;
+    const treasury = (db.prepare("SELECT treasury FROM countries WHERE id = ?").get(countryId) as { treasury: number }).treasury;
+    assert.equal(inventory, 50);
+    assert.equal(stock, 70);
+    assert.equal(treasury, 100);
+    const exportIncome = (db.prepare("SELECT SUM(amount) AS total FROM financial_ledger WHERE country_id = ? AND kind = 'export_income'").get(countryId) as { total: number }).total;
+    assert.equal(exportIncome, 100);
+  } finally {
+    closeTestDatabase(db);
+  }
+});
+
+test("food shortage buys available global food and finances only the shortfall through inflation", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { name: "Hungry", treasury: 0, population: 100, foodPerPerson: 1 });
+    const foodId = Number(db.prepare(
+      "INSERT INTO items (guild_id, name, category, is_food, global_tradeable, created_by) VALUES ('guild', 'Grain', 'common', 1, 1, 'narrator')",
+    ).run().lastInsertRowid);
+    db.prepare(
+      "INSERT INTO global_stock (guild_id, item_id, quantity, current_price, base_price, min_price, max_price, max_quantity, annual_replenishment) VALUES ('guild', ?, 40, 2, 2, 1, 10, 100, 0)",
+    ).run(foodId);
+    processAnnualTurn(db, "guild", "narrator", "annual-auto-food");
+    const country = db.prepare("SELECT treasury, inflation_issued, revolt_counter FROM countries WHERE id = ?").get(countryId) as { treasury: number; inflation_issued: number; revolt_counter: number };
+    const stock = (db.prepare("SELECT quantity FROM global_stock WHERE guild_id = 'guild' AND item_id = ?").get(foodId) as { quantity: number }).quantity;
+    assert.equal(country.treasury, 0);
+    assert.equal(country.inflation_issued, 80);
+    assert.equal(stock, 0);
+    assert.equal(country.revolt_counter, 6);
+  } finally {
+    closeTestDatabase(db);
+  }
+});
