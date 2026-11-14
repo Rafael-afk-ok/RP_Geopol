@@ -1,4 +1,7 @@
 import {
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
   EmbedBuilder,
   PermissionFlagsBits,
   type ChatInputCommandInteraction,
@@ -7,15 +10,14 @@ import type Database from "better-sqlite3";
 import { assertDomain, DomainError } from "../domain/errors.js";
 import { audit } from "../services/audit.js";
 import { processAnnualTurn, undoAnnualTurn, listAnnualRuns } from "../services/annual.js";
-import { addEconomyEntry, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
+import { adjustBalance, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
 import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
-import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, setCountryProduction, setGlobalStock } from "../services/inventory.js";
+import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
 import { configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
-import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission, revokeNarratorPermission, setCountryPermission } from "../services/permissions.js";
+import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, isMainNarrator, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission } from "../services/permissions.js";
 import { cancelProduction, listProductionQueue, startProduction } from "../services/production.js";
-import { validNarratorPermission } from "./definitions.js";
 
 type Handler = (interaction: ChatInputCommandInteraction, db: Database.Database) => Promise<void>;
 
@@ -24,8 +26,15 @@ function id(interaction: ChatInputCommandInteraction): string {
   return interaction.guildId;
 }
 
-function countryNumber(interaction: ChatInputCommandInteraction, name = "pais_id"): number {
-  return interaction.options.getInteger(name, true);
+function countryNumber(interaction: ChatInputCommandInteraction, db: Database.Database, name = "pais"): number {
+  const guildId = id(interaction);
+  const nameValue = interaction.options.getString(name, true).trim();
+  const narrator = hasNarratorPermission(db, guildId, interaction.user.id, "countries", "read");
+  const country = narrator
+    ? db.prepare("SELECT id FROM countries WHERE guild_id = ? AND status = 'active' AND lower(name) = lower(?)").get(guildId, nameValue) as { id: number } | undefined
+    : db.prepare("SELECT c.id FROM countries c JOIN country_memberships m ON m.country_id = c.id WHERE c.guild_id = ? AND c.status = 'active' AND lower(c.name) = lower(?) AND m.user_id = ?").get(guildId, nameValue, interaction.user.id) as { id: number } | undefined;
+  assertDomain(country, "País não encontrado ou você não está associado a ele.");
+  return country.id;
 }
 
 function jsonValue(value: string | null): unknown {
@@ -40,7 +49,7 @@ function jsonValue(value: string | null): unknown {
 function userCountriesEmbed(title: string, rows: Array<{ id: number; name: string }>): EmbedBuilder {
   return new EmbedBuilder()
     .setTitle(title)
-    .setDescription(rows.length ? rows.map((row) => `**${row.name}** — ID \`${row.id}\``).join("\n") : "Nenhum país disponível.")
+    .setDescription(rows.length ? rows.map((row) => `**${row.name}**`).join("\n") : "Nenhum país disponível.")
     .setColor(0x315e56);
 }
 
@@ -75,6 +84,35 @@ function getCountryForView(db: Database.Database, guildId: string, userId: strin
     };
   }
   return getAccessibleCountry(db, guildId, userId, countryId);
+}
+
+function itemIdByName(db: Database.Database, guildId: string, name: string): number {
+  const item = db.prepare("SELECT id FROM items WHERE guild_id = ? AND lower(name) = lower(?)")
+    .get(guildId, name.trim()) as { id: number } | undefined;
+  assertDomain(item, "Item não encontrado neste servidor.");
+  return item.id;
+}
+
+function countryIdByName(db: Database.Database, guildId: string, name: string): number {
+  const country = db.prepare("SELECT id FROM countries WHERE guild_id = ? AND status = 'active' AND lower(name) = lower(?)")
+    .get(guildId, name.trim()) as { id: number } | undefined;
+  assertDomain(country, "País não encontrado ou arquivado.");
+  return country.id;
+}
+
+function resolveCommandCountry(db: Database.Database, guildId: string, userId: string, requestedName?: string) {
+  if (requestedName) {
+    const country = db.prepare("SELECT id, name, treasury FROM countries WHERE guild_id = ? AND status = 'active' AND lower(name) = lower(?)").get(guildId, requestedName.trim()) as { id: number; name: string; treasury: number } | undefined;
+    assertDomain(country, "País não encontrado.");
+    const isNarrator = hasNarratorPermission(db, guildId, userId, "countries", "read");
+    const membership = db.prepare("SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = ?").get(country.id, userId);
+    assertDomain(isNarrator || membership, "Você não está associado a este país.");
+    return country;
+  }
+  const rows = db.prepare("SELECT c.id, c.name, c.treasury FROM countries c JOIN country_memberships m ON m.country_id = c.id WHERE c.guild_id = ? AND c.status = 'active' AND m.user_id = ? ORDER BY c.name").all(guildId, userId) as Array<{ id: number; name: string; treasury: number }>;
+  assertDomain(rows.length > 0, "Nenhum país associado à sua conta. Informe o nome do país se você for narrador.");
+  assertDomain(rows.length === 1, "Você controla mais de um país. Informe o nome em pais.");
+  return rows[0]!;
 }
 
 function formatNumber(value: number, decimals: number): string {
@@ -144,29 +182,30 @@ const handlers: Record<string, Handler> = {
     const subcommand = interaction.options.getSubcommand();
     if (subcommand === "criar") {
       const role = interaction.options.getRole("cargo", true);
-      const countryId = createCountry(
+      createCountry(
         db,
         guildId,
         interaction.user.id,
         interaction.options.getString("nome", true),
         role.id,
       );
-      await reply(interaction, `País criado. ID interno: **${countryId}**. Jogadores com o cargo serão associados automaticamente ao usar o bot.`);
+      await reply(interaction, `País **${interaction.options.getString("nome", true)}** criado. Jogadores com o cargo serão associados automaticamente ao usar o bot.`);
       return;
     }
     if (subcommand === "arquivar") {
-      const countryId = countryNumber(interaction);
+      const countryId = countryNumber(interaction, db);
+      const countryName = getCountryForView(db, guildId, interaction.user.id, countryId).name;
       archiveCountry(db, guildId, interaction.user.id, countryId);
-      await reply(interaction, `País ${countryId} arquivado.`);
+      await reply(interaction, `País **${countryName}** arquivado.`);
       return;
     }
     if (subcommand === "editar") {
-      const countryId = countryNumber(interaction);
+      const countryId = countryNumber(interaction, db);
       updateCountry(db, guildId, interaction.user.id, countryId, {
         name: interaction.options.getString("nome") ?? undefined,
         roleId: interaction.options.getRole("cargo")?.id,
       });
-      await reply(interaction, `País ${countryId} atualizado.`);
+      await reply(interaction, `Dados do país atualizados.`);
       return;
     }
     if (subcommand === "listar") {
@@ -179,14 +218,14 @@ const handlers: Record<string, Handler> = {
       });
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     const country = getCountryForView(db, guildId, interaction.user.id, countryId);
     const settings = db.prepare("SELECT currency_symbol, current_year FROM guild_settings WHERE guild_id = ?").get(guildId) as
       | { currency_symbol: string; current_year: number }
       | undefined;
     const embed = new EmbedBuilder()
       .setTitle(country.name)
-      .setDescription(`ID interno: ${country.id} · Ano atual: ${settings?.current_year ?? 0}`)
+      .setDescription(`Ano atual: ${settings?.current_year ?? 0}`)
       .addFields(
         { name: "Tesouro", value: `${formatNumber(country.treasury, 2)} ${settings?.currency_symbol ?? ""}`, inline: true },
         { name: "Renda anual", value: `${formatNumber(country.annual_income, 2)} ${settings?.currency_symbol ?? ""}`, inline: true },
@@ -209,56 +248,19 @@ const handlers: Record<string, Handler> = {
       });
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
+    const countryName = getCountryForView(db, guildId, interaction.user.id, countryId).name;
     const target = interaction.options.getUser("jogador", true);
     if (!playerCanManageCountry(db, guildId, interaction.user.id, countryId)) {
       throw new DomainError("Você não tem permissão para gerenciar jogadores neste país.");
     }
     if (subcommand === "associar") {
       associatePlayer(db, guildId, countryId, interaction.user.id, target.id);
-      await reply(interaction, `<@${target.id}> foi associado ao país ${countryId}.`);
+      await reply(interaction, `<@${target.id}> foi associado ao país **${countryName}**.`);
     } else {
       removePlayer(db, guildId, countryId, interaction.user.id, target.id);
-      await reply(interaction, `<@${target.id}> foi removido do país ${countryId}.`);
+      await reply(interaction, `<@${target.id}> foi removido do país **${countryName}**.`);
     }
-  },
-
-  permissao: async (interaction, db) => {
-    const guildId = id(interaction);
-    if (interaction.options.getSubcommand() === "narrador") {
-      const target = interaction.options.getUser("jogador", true);
-      const system = interaction.options.getString("sistema", true);
-      const action = interaction.options.getString("acao", true);
-      assertDomain(validNarratorPermission(system, action), "Esta ação não existe para o sistema escolhido.");
-      if (interaction.options.getBoolean("permitir", true)) {
-        grantNarratorPermission(db, guildId, interaction.user.id, target.id, system, action);
-        await reply(interaction, `Permissão **${system}/${action}** concedida a <@${target.id}>.`);
-      } else {
-        revokeNarratorPermission(db, guildId, interaction.user.id, target.id, system, action);
-        await reply(interaction, `Permissão **${system}/${action}** revogada de <@${target.id}>.`);
-      }
-      return;
-    }
-    const countryId = countryNumber(interaction);
-    assertDomain(
-      playerCanManageCountry(db, guildId, interaction.user.id, countryId),
-      "Você não pode alterar permissões de jogadores neste país.",
-    );
-    const target = interaction.options.getUser("alvo", true);
-    const system = interaction.options.getString("sistema", true) as Parameters<typeof setCountryPermission>[4];
-    const action = interaction.options.getString("acao", true);
-    const allowed = interaction.options.getBoolean("permitir", true);
-    setCountryPermission(
-      db,
-      guildId,
-      countryId,
-      interaction.user.id,
-      target.id,
-      system as Parameters<typeof setCountryPermission>[5],
-      action,
-      allowed,
-    );
-    await reply(interaction, `Permissão **${system}/${action}** ${allowed ? "concedida" : "revogada"} para <@${target.id}> no país ${countryId}.`);
   },
 
   indicador: async (interaction, db) => {
@@ -302,17 +304,17 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        countryNumber(interaction),
+        countryNumber(interaction, db),
         indicatorId,
         jsonValue(interaction.options.getString("valor", true)),
       );
       await reply(interaction, "Indicador atualizado.");
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     const rows = listIndicators(db, guildId, interaction.user.id, countryId);
     const embed = new EmbedBuilder()
-      .setTitle(`Indicadores do país ${countryId}`)
+      .setTitle(`Indicadores nacionais · ${getCountryForView(db, guildId, interaction.user.id, countryId).name}`)
       .setDescription(rows.length
         ? rows.map((row) => `**${row.category} · ${row.name}** (${row.data_type})\n${String(row.value ?? "—")}${row.description ? `\n${row.description}` : ""}`).join("\n\n").slice(0, 4000)
         : "Nenhum indicador foi configurado.")
@@ -323,34 +325,14 @@ const handlers: Record<string, Handler> = {
   economia: async (interaction, db) => {
     const guildId = id(interaction);
     const subcommand = interaction.options.getSubcommand();
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     if (subcommand === "configurar") {
       configureCountryEconomy(db, guildId, interaction.user.id, countryId, {
         maxMoney: interaction.options.getNumber("limite_saldo"),
         debtLimit: interaction.options.getNumber("limite_divida", true),
         annualIncome: interaction.options.getNumber("renda_anual", true),
       });
-      await reply(interaction, `Limites e rendimento anual do país ${countryId} atualizados.`);
-      return;
-    }
-    if (subcommand === "lancar") {
-      const settings = db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = ?").get(guildId) as
-        | { current_year: number }
-        | undefined;
-      const dueYear = interaction.options.getInteger("ano") ?? (settings?.current_year ?? 0) + 1;
-      const entryId = addEconomyEntry(
-        db,
-        guildId,
-        interaction.user.id,
-        countryId,
-        interaction.options.getString("tipo", true) as "income" | "expense",
-        interaction.options.getNumber("valor", true),
-        interaction.options.getString("descricao", true),
-        interaction.options.getString("frequencia", true) as "recurring" | "one_time",
-        dueYear,
-        interaction.id,
-      );
-      await reply(interaction, `Lançamento financeiro #${entryId} registrado para o ano ${dueYear}.`);
+      await reply(interaction, `Limites e rendimento anual atualizados.`);
       return;
     }
     if (subcommand === "inflar") {
@@ -370,8 +352,8 @@ const handlers: Record<string, Handler> = {
       db,
       guildId,
       interaction.user.id,
-      interaction.options.getInteger("origem", true),
-      interaction.options.getInteger("destino", true),
+      countryIdByName(db, guildId, interaction.options.getString("origem", true)),
+      countryIdByName(db, guildId, interaction.options.getString("destino", true)),
       interaction.options.getNumber("valor", true),
       interaction.options.getString("descricao") ?? "Transferência entre países",
       interaction.id,
@@ -382,6 +364,30 @@ const handlers: Record<string, Handler> = {
   inventario: async (interaction, db) => {
     const guildId = id(interaction);
     const subcommand = interaction.options.getSubcommand();
+    if (subcommand === "painel") {
+      const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais") ?? undefined);
+      ensureDefaultCatalog(db, guildId, interaction.user.id);
+      const rows = listCountryInventory(db, guildId, interaction.user.id, country.id);
+      const selected = "Recursos naturais";
+      const filtered = rows.filter((row) => row.category === selected);
+      const embed = new EmbedBuilder()
+        .setTitle(`Inventário nacional · ${country.name}`)
+        .setDescription(filtered.length
+          ? filtered.map((row) => {
+              const net = row.annual_production - row.annual_consumption;
+              return `**${row.name}**\nEstoque: ${formatNumber(row.quantity, 2)} ${row.unit ?? ""} · Produção anual: ${formatNumber(row.annual_production, 2)} · Consumo anual: ${formatNumber(row.annual_consumption, 2)} · Variação: ${net >= 0 ? "+" : ""}${formatNumber(net, 2)}`;
+            }).join("\n\n").slice(0, 3900)
+          : "Nenhum item nesta categoria.")
+        .setFooter({ text: "Selecione uma categoria nos botões abaixo." })
+        .setColor(0x315e56);
+      const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`inventario_pagina:${country.id}:resources`).setLabel("Recursos naturais").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`inventario_pagina:${country.id}:industry`).setLabel("Indústria e bens").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`inventario_pagina:${country.id}:military`).setLabel("Militar").setStyle(ButtonStyle.Secondary),
+      );
+      await interaction.editReply({ embeds: [embed], components: [buttons], allowedMentions: { parse: [] } });
+      return;
+    }
     if (subcommand === "categoria") {
       const categoryId = createCustomItemCategory(
         db,
@@ -416,11 +422,11 @@ const handlers: Record<string, Handler> = {
         isFood: interaction.options.getBoolean("alimento", true),
         globalTradeable: interaction.options.getBoolean("mercado_global", true),
       });
-      await reply(interaction, `Item criado. ID: **${itemId}**.`);
+      await reply(interaction, `Item **${interaction.options.getString("nome", true)}** criado.`);
       return;
     }
     if (subcommand === "ajustar") {
-      adjustInventory(db, guildId, interaction.user.id, countryNumber(interaction), interaction.options.getInteger("item_id", true),
+      adjustInventory(db, guildId, interaction.user.id, countryNumber(interaction, db), itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("variacao", true), interaction.options.getString("motivo", true), interaction.id);
       await reply(interaction, "Estoque atualizado.");
       return;
@@ -430,8 +436,8 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        countryNumber(interaction),
-        interaction.options.getInteger("item_id", true),
+        countryNumber(interaction, db),
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("produz", true),
         interaction.options.getNumber("consome", true),
       );
@@ -443,8 +449,8 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        interaction.options.getInteger("produto_id", true),
-        interaction.options.getInteger("material_id", true),
+        itemIdByName(db, guildId, interaction.options.getString("produto", true)),
+        itemIdByName(db, guildId, interaction.options.getString("material", true)),
         interaction.options.getNumber("quantidade", true),
       );
       await reply(interaction, "Requisito de material configurado.");
@@ -455,7 +461,7 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        interaction.options.getInteger("item_id", true),
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("estoque", true),
         interaction.options.getNumber("preco", true),
         interaction.options.getNumber("preco_minimo", true),
@@ -464,25 +470,28 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, "Estoque e preços globais atualizados.");
       return;
     }
-    const rows = listCountryInventory(db, guildId, interaction.user.id, countryNumber(interaction));
+    const inventoryCountryId = countryNumber(interaction, db);
+    const inventoryCountryName = getCountryForView(db, guildId, interaction.user.id, inventoryCountryId).name;
+    const rows = listCountryInventory(db, guildId, interaction.user.id, inventoryCountryId);
     const embed = new EmbedBuilder()
-      .setTitle(`Inventário do país ${countryNumber(interaction)}`)
+      .setTitle(`Inventário nacional · ${inventoryCountryName}`)
       .setDescription(rows.length
-        ? rows.map((row) => `**${row.name}** · ${row.category}: ${formatNumber(row.quantity, 2)}${row.unit ? ` ${row.unit}` : ""} (ID ${row.id})`).join("\n").slice(0, 4000)
+        ? rows.map((row) => `**${row.name}** · ${row.category}: ${formatNumber(row.quantity, 2)}${row.unit ? ` ${row.unit}` : ""}`).join("\n").slice(0, 4000)
         : "Nenhum item configurado.")
       .setColor(0x315e56);
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
   produzir: async (interaction, db) => {
+    const guildId = id(interaction);
     const subcommand = interaction.options.getSubcommand();
     if (subcommand === "iniciar") {
       const result = startProduction(
         db,
         id(interaction),
         interaction.user.id,
-        countryNumber(interaction),
-        interaction.options.getInteger("item_id", true),
+        countryNumber(interaction, db),
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("quantidade", true),
         interaction.id,
       );
@@ -496,10 +505,10 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, `Pedido cancelado. Materiais devolvidos parcialmente: ${formatNumber(returned, 2)} unidades no total. O custo de produção não é reembolsado.`);
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     const rows = listProductionQueue(db, id(interaction), interaction.user.id, countryId);
     const embed = new EmbedBuilder()
-      .setTitle(`Fila de produção · país ${countryId}`)
+      .setTitle(`Fila de produção · ${getCountryForView(db, id(interaction), interaction.user.id, countryId).name}`)
       .setDescription(rows.length
         ? rows.map((row) => `**${row.item}** × ${formatNumber(row.quantity, 2)} · ${row.status === "in_progress" ? `${row.remaining_years} ano(s) restante(s)` : row.status} · \`${row.id.slice(0, 8)}\``).join("\n").slice(0, 4000)
         : "Nenhum pedido de produção.")
@@ -577,8 +586,8 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        countryNumber(interaction),
-        interaction.options.getInteger("item_id", true),
+        countryNumber(interaction, db),
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("quantidade", true),
         interaction.options.getNumber("preco_unitario", true),
         interaction.options.getString("descricao") ?? "",
@@ -592,7 +601,7 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        countryNumber(interaction),
+        countryNumber(interaction, db),
         interaction.options.getString("oferta_id", true),
         interaction.options.getNumber("quantidade", true),
         interaction.id,
@@ -610,8 +619,8 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        countryNumber(interaction),
-        interaction.options.getInteger("item_id", true),
+        countryNumber(interaction, db),
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
         subcommand === "global-comprar" ? "buy" : "sell",
         interaction.options.getNumber("quantidade", true),
         interaction.id,
@@ -631,7 +640,7 @@ const handlers: Record<string, Handler> = {
           ? offers.slice(0, 10).map((offer) => `\`${offer.id.slice(0, 8)}\` · ${offer.item} × ${formatNumber(offer.remaining_quantity, 2)} · ${formatNumber(offer.unit_price, 2)} ${offer.currency_symbol} · expira no ano ${offer.expires_year}`).join("\n").slice(0, 1000)
           : "Nenhuma oferta aberta." },
         { name: "Mercado global", value: stock.length
-          ? stock.slice(0, 10).map((item) => `**${item.name}** (ID ${item.id}) · estoque ${formatNumber(item.quantity, 2)} · preço ${formatNumber(item.current_price, 2)} [${formatNumber(item.min_price, 2)}–${formatNumber(item.max_price, 2)}]`).join("\n").slice(0, 1000)
+          ? stock.slice(0, 10).map((item) => `**${item.name}** · estoque ${formatNumber(item.quantity, 2)} · preço ${formatNumber(item.current_price, 2)} [${formatNumber(item.min_price, 2)}–${formatNumber(item.max_price, 2)}]`).join("\n").slice(0, 1000)
           : "Nenhum produto global configurado." },
       )
       .setColor(0x315e56);
@@ -641,7 +650,7 @@ const handlers: Record<string, Handler> = {
   populacao: async (interaction, db) => {
     const guildId = id(interaction);
     if (interaction.options.getSubcommand() === "definir") {
-      configurePopulation(db, guildId, interaction.user.id, countryNumber(interaction), {
+      configurePopulation(db, guildId, interaction.user.id, countryNumber(interaction, db), {
         population: interaction.options.getInteger("populacao", true),
         annualGrowthPercent: interaction.options.getNumber("crescimento_percentual", true),
         foodPerPerson: interaction.options.getNumber("alimento_por_pessoa", true),
@@ -650,7 +659,7 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, "População, crescimento e contador de revolta atualizados.");
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     requireCountryOrNarratorPermission(db, guildId, countryId, interaction.user.id, "population", "read");
     const row = getPopulation(db, guildId, countryId);
     const embed = new EmbedBuilder()
@@ -715,7 +724,7 @@ const handlers: Record<string, Handler> = {
       await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     requireCountryOrNarratorPermission(db, guildId, countryId, interaction.user.id, "economy", "read");
     const page = interaction.options.getInteger("pagina") ?? 1;
     const rows = db.prepare(
@@ -723,7 +732,7 @@ const handlers: Record<string, Handler> = {
        WHERE guild_id = ? AND country_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 10 OFFSET ?`,
     ).all(guildId, countryId, (page - 1) * 10) as Array<{ year: number; kind: string; amount: number; note: string; actor_id: string; created_at: string }>;
     const embed = new EmbedBuilder()
-      .setTitle(`Extrato · país ${countryId} · página ${page}`)
+      .setTitle(`Extrato · ${getCountryForView(db, guildId, interaction.user.id, countryId).name} · página ${page}`)
       .setDescription(rows.length
         ? rows.map((row) => `Ano ${row.year} · ${row.amount >= 0 ? "+" : ""}${formatNumber(row.amount, 2)} · ${row.kind} · <@${row.actor_id}>\n${row.note}`).join("\n\n").slice(0, 4000)
         : "Nenhum lançamento financeiro.")
@@ -731,15 +740,147 @@ const handlers: Record<string, Handler> = {
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
+  ranking: async (interaction, db) => {
+    const guildId = id(interaction);
+    const type = interaction.options.getString("tipo", true);
+    const settings = db.prepare("SELECT current_year, currency_symbol FROM guild_settings WHERE guild_id = ?").get(guildId) as { current_year: number; currency_symbol: string } | undefined;
+    const year = settings?.current_year ?? 0;
+    let rows: Array<{ name: string; value: number; previous?: number }>;
+    let title: string;
+    let suffix = settings?.currency_symbol ?? "";
+    if (type === "economy") {
+      title = "Ranking econômico · saldo do tesouro";
+      rows = db.prepare("SELECT name, treasury AS value FROM countries WHERE guild_id = ? AND status = 'active' ORDER BY treasury DESC, name COLLATE NOCASE LIMIT 10")
+        .all(guildId) as typeof rows;
+    } else if (type === "population") {
+      title = "Ranking populacional";
+      rows = db.prepare("SELECT name, population AS value FROM countries WHERE guild_id = ? AND status = 'active' ORDER BY population DESC, name COLLATE NOCASE LIMIT 10")
+        .all(guildId) as typeof rows;
+      suffix = " habitantes";
+    } else if (type === "production") {
+      title = "Ranking industrial · valor da produção anual";
+      rows = db.prepare(
+        "SELECT c.name, COALESCE(SUM(p.annual_production * i.production_cost), 0) AS value FROM countries c LEFT JOIN country_production p ON p.country_id = c.id LEFT JOIN items i ON i.id = p.item_id WHERE c.guild_id = ? AND c.status = 'active' GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10",
+      ).all(guildId) as typeof rows;
+      suffix = ` ${settings?.currency_symbol ?? ""} (valor estimado)`;
+    } else if (type === "stock") {
+      title = "Ranking de estoques · valor estimado";
+      rows = db.prepare(
+        "SELECT c.name, COALESCE(SUM(v.quantity * i.production_cost), 0) AS value FROM countries c LEFT JOIN country_inventory v ON v.country_id = c.id LEFT JOIN items i ON i.id = v.item_id WHERE c.guild_id = ? AND c.status = 'active' GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10",
+      ).all(guildId) as typeof rows;
+      suffix = ` ${settings?.currency_symbol ?? ""} (valor estimado)`;
+    } else {
+      title = `Ranking de variação do resultado financeiro · ano ${year}`;
+      rows = db.prepare(
+        `SELECT c.name,
+          COALESCE(SUM(CASE WHEN l.year = ? THEN l.amount ELSE 0 END), 0) AS value,
+          COALESCE(SUM(CASE WHEN l.year = ? THEN l.amount ELSE 0 END), 0) AS previous
+         FROM countries c LEFT JOIN financial_ledger l ON l.country_id = c.id
+         WHERE c.guild_id = ? AND c.status = 'active'
+         GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10`,
+      ).all(year, year - 1, guildId) as typeof rows;
+    }
+    const lines = rows.map((row, index) => {
+      const value = type === "growth" && row.previous !== undefined && row.previous > 0
+        ? `${(((row.value - row.previous) / row.previous) * 100).toFixed(1).replace(".", ",")}%`
+        : type === "growth" ? "—" : `${formatNumber(row.value, type === "population" ? 0 : 2)}${type === "population" ? suffix : ` ${suffix}`}`;
+      return `**${index + 1}. ${row.name}** — ${value}`;
+    });
+    const embed = new EmbedBuilder().setTitle(title).setDescription(lines.length ? lines.join("\n") : "Nenhum país cadastrado.")
+      .setFooter({ text: type === "growth" ? "Variação percentual do resultado financeiro líquido em relação ao ano anterior; — = base anterior nula/negativa." : "Top 10 países · valores atuais" })
+      .setColor(0x315e56);
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+  },
+
+  narrador: async (interaction, db) => {
+    const guildId = id(interaction);
+    assertDomain(isMainNarrator(db, guildId, interaction.user.id), "Somente o Narrador Supremo pode nomear ou remover narradores.");
+    const target = interaction.options.getUser("jogador", true);
+    assertDomain(target.id !== interaction.user.id && !isMainNarrator(db, guildId, target.id), "O Narrador Supremo não pode ser removido ou substituído por este comando.");
+    if (interaction.options.getSubcommand() === "adicionar") {
+      grantNarratorPermission(db, guildId, interaction.user.id, target.id, "*", "*");
+      await reply(interaction, `${target.username} agora é narrador e possui acesso administrativo completo.`);
+    } else {
+      db.prepare("DELETE FROM narrator_grants WHERE guild_id = ? AND user_id = ?").run(guildId, target.id);
+      audit(db, guildId, interaction.user.id, "remove_narrator", "narrator", target.id);
+      await reply(interaction, `${target.username} deixou de ser narrador.`);
+    }
+  },
+
+  saldo: async (interaction, db) => {
+    const guildId = id(interaction);
+    const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais") ?? undefined);
+    const settings = db.prepare("SELECT current_year, currency_symbol FROM guild_settings WHERE guild_id = ?").get(guildId) as { current_year: number; currency_symbol: string } | undefined;
+    const year = settings?.current_year ?? 0;
+    const totals = (targetYear: number) => db.prepare("SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS gains, COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0) AS expenses FROM financial_ledger WHERE guild_id = ? AND country_id = ? AND year = ?").get(guildId, country.id, targetYear) as { gains: number; expenses: number };
+    const current = totals(year), previous = totals(year - 1);
+    const net = current.gains - current.expenses, previousNet = previous.gains - previous.expenses;
+    const comparison = previousNet > 0 ? `${net >= previousNet ? "+" : ""}${formatNumber(((net - previousNet) / previousNet) * 100, 1)}% em relação ao resultado do ano anterior` : "Comparação percentual indisponível (resultado anterior nulo ou negativo)";
+    const symbol = settings?.currency_symbol ?? "";
+    const embed = new EmbedBuilder().setTitle(`Tesouro nacional · ${country.name}`).setDescription(`**Saldo atual**\n# ${symbol} ${formatNumber(country.treasury, 2)}`).addFields(
+      { name: "Ganhos do ano", value: `+ ${symbol} ${formatNumber(current.gains, 2)}`, inline: true },
+      { name: "Gastos do ano", value: `− ${symbol} ${formatNumber(current.expenses, 2)}`, inline: true },
+      { name: "Resultado anual", value: `${net >= 0 ? "+" : "−"} ${symbol} ${formatNumber(Math.abs(net), 2)}`, inline: true },
+      { name: "Comparação", value: comparison },
+    ).setFooter({ text: `Exercício ${year} · Detalhamento disponível pelo botão abaixo` }).setColor(net >= 0 ? 0x27865b : 0xa94442);
+    const row = new ActionRowBuilder<ButtonBuilder>().addComponents(new ButtonBuilder().setCustomId(`saldo_detalhes:${country.id}:${year}`).setLabel("Detalhamento do ano").setStyle(ButtonStyle.Secondary));
+    await interaction.editReply({ embeds: [embed], components: [row], allowedMentions: { parse: [] } });
+  },
+
+  gastar: async (interaction, db) => {
+    const guildId = id(interaction);
+    const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais") ?? undefined);
+    const amount = interaction.options.getNumber("valor", true), reason = interaction.options.getString("motivo", true);
+    adjustBalance(db, country.id, guildId, interaction.user.id, -amount, "player_spend", reason);
+    await reply(interaction, `Gasto registrado para ${country.name}: − ${formatNumber(amount, 2)}. Motivo: ${reason}`);
+  },
+
+  dinheiro: async (interaction, db) => {
+    const guildId = id(interaction);
+    requireNarratorPermission(db, guildId, interaction.user.id, "economy", "configure");
+    const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais", true));
+    const subcommand = interaction.options.getSubcommand(), reason = interaction.options.getString("motivo", true);
+    if (subcommand === "definir") {
+      const target = interaction.options.getNumber("saldo", true), delta = target - country.treasury;
+      assertDomain(Math.abs(delta) > 1e-9, "O país já possui esse saldo.");
+      adjustBalance(db, country.id, guildId, interaction.user.id, delta, "admin_set_balance", reason);
+      await reply(interaction, `Saldo de ${country.name} definido para ${formatNumber(target, 2)}. Motivo: ${reason}`);
+      return;
+    }
+    const amount = interaction.options.getNumber("valor", true), delta = subcommand === "adicionar" ? amount : -amount;
+    adjustBalance(db, country.id, guildId, interaction.user.id, delta, `admin_${subcommand}`, reason);
+    await reply(interaction, `${subcommand === "adicionar" ? "Adicionados" : "Removidos"} ${formatNumber(amount, 2)} em ${country.name}. Motivo: ${reason}`);
+  },
+
+  rendimento: async (interaction, db) => {
+    const guildId = id(interaction);
+    requireNarratorPermission(db, guildId, interaction.user.id, "economy", "edit");
+    const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais", true));
+    const signedAmount = interaction.options.getNumber("valor", true);
+    assertDomain(Number.isFinite(signedAmount) && signedAmount !== 0, "O valor precisa ser diferente de zero.");
+    const reason = interaction.options.getString("motivo", true);
+    adjustBalance(
+      db,
+      country.id,
+      guildId,
+      interaction.user.id,
+      signedAmount,
+      signedAmount > 0 ? "narrator_income" : "narrator_expense",
+      reason,
+    );
+    await reply(interaction, `${signedAmount > 0 ? "Rendimento" : "Despesa"} registrado imediatamente para **${country.name}**: ${signedAmount > 0 ? "+" : "−"} ${formatNumber(Math.abs(signedAmount), 2)}. Motivo: ${reason}`);
+  },
+
   ajuda: async (interaction) => {
     const embed = new EmbedBuilder()
       .setTitle("Bot de RP Geopolítico")
-      .setDescription("Use `/configurar principal` como dono ou administrador do servidor para iniciar. Depois, configure a moeda, crie países e associe cargos do Discord. Países são privados; administradores podem delegar permissões por sistema e ação.")
+      .setDescription("Inicie com `/configurar principal`. Configure a moeda e crie cada país com seu cargo Discord. Quem possui o cargo é associado automaticamente; ao perder o cargo, perde o acesso automático. Jogadores controlam seus próprios países. O Narrador Supremo nomeia narradores com `/narrador adicionar`; narradores têm acesso administrativo completo.")
       .addFields(
-        { name: "Países e jogadores", value: "`/pais` · `/jogador` · `/permissao`" },
-        { name: "Economia e itens", value: "`/economia` · `/transferir` · `/inventario` · `/produzir`" },
+        { name: "Países", value: "`/pais criar` · `/pais listar` · `/pais ver` · `/jogador`" },
+        { name: "Finanças", value: "`/saldo` · `/gastar` · `/transferir` · `/rendimento adicionar` · `/dinheiro`" },
+        { name: "Inventário e produção", value: "`/inventario painel` · `/inventario criar-item` · `/inventario producao-anual` · `/produzir`" },
+        { name: "Rankings e turnos", value: "`/ranking` · `/ano avancar` · `/ano desfazer` · `/historico`" },
         { name: "Mercado e população", value: "`/mercado` · `/populacao` · `/indicador`" },
-        { name: "Turnos e registros", value: "`/ano avancar` · `/ano desfazer` · `/historico`" },
       )
       .setFooter({ text: "Desfazer um ano é bloqueado se o estado do jogo tiver mudado depois dele." })
       .setColor(0x315e56);

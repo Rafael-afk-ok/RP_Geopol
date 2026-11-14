@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { processAnnualTurn, undoAnnualTurn } from "../src/services/annual.js";
-import { createCustomItemCategory, defineItem, listCountryInventory } from "../src/services/inventory.js";
+import { createCustomItemCategory, defineItem, ensureDefaultCatalog, listCountryInventory } from "../src/services/inventory.js";
 import { createIndicator, createIndicatorCategory, listIndicators } from "../src/services/indicators.js";
 import { closeTestDatabase, createTestDatabase, insertCountry } from "./helpers.js";
 
@@ -29,7 +29,7 @@ test("custom item categories, annual income, expenses, and maintenance are proce
       .run(countryId, itemId);
 
     const inventory = listCountryInventory(db, "guild", "narrator", countryId);
-    assert.equal(inventory[0]?.category, "Infrastructure");
+    assert.equal(inventory[0]?.category, "Indústria e bens");
 
     const result = processAnnualTurn(db, "guild", "narrator", "custom-item-year");
     assert.equal(result.summary.revenue, 30);
@@ -51,6 +51,23 @@ test("typed indicators can be created without a default value", () => {
     createIndicator(db, "guild", "narrator", categoryId, "Literacy", "", "number", undefined);
     const rows = listIndicators(db, "guild", "narrator", countryId);
     assert.equal(rows[0]?.value, null);
+  } finally {
+    closeTestDatabase(db);
+  }
+});
+
+test("default inventory catalog seeds 18 products in three categories idempotently", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db);
+    ensureDefaultCatalog(db, "guild", "narrator");
+    ensureDefaultCatalog(db, "guild", "narrator");
+    const rows = listCountryInventory(db, "guild", "narrator", countryId);
+    assert.equal(rows.length, 18);
+    assert.equal(rows.filter((row) => row.category === "Recursos naturais").length, 6);
+    assert.equal(rows.filter((row) => row.category === "Indústria e bens").length, 6);
+    assert.equal(rows.filter((row) => row.category === "Militar").length, 6);
+    assert.ok(rows.every((row) => Number.isFinite(row.annual_production) && Number.isFinite(row.annual_consumption)));
   } finally {
     closeTestDatabase(db);
   }

@@ -4,7 +4,7 @@ import { addEconomyEntry } from "../src/services/economy.js";
 import { adjustInventory, setCountryProduction } from "../src/services/inventory.js";
 import { closeTestDatabase, createTestDatabase, insertCountry } from "./helpers.js";
 
-test("country-scoped edit grants are enforced by the services", () => {
+test("all members can edit only the country they belong to", () => {
   const db = createTestDatabase();
   try {
     const countryId = insertCountry(db);
@@ -25,20 +25,22 @@ test("country-scoped edit grants are enforced by the services", () => {
     );
     setCountryProduction(db, "guild", "manager", countryId, itemId, 5, 1);
     addEconomyEntry(db, "guild", "manager", countryId, "income", 10, "Local income", "recurring", 1);
-    assert.throws(
-      () => adjustInventory(db, "guild", "reader", countryId, itemId, 1, "unauthorized"),
-      /não tem permissão/,
+    assert.doesNotThrow(
+      () => adjustInventory(db, "guild", "reader", countryId, itemId, 1, "member edit"),
+    );
+    assert.doesNotThrow(
+      () => addEconomyEntry(db, "guild", "reader", countryId, "income", 10, "Member income", "recurring", 1),
     );
     assert.throws(
-      () => addEconomyEntry(db, "guild", "reader", countryId, "income", 10, "Unauthorized", "recurring", 1),
-      /não tem permissão/,
+      () => adjustInventory(db, "guild", "outsider", countryId, itemId, 1, "outsider edit"),
+      /não está associado/,
     );
 
     assert.equal(
       (db.prepare("SELECT annual_production, annual_consumption FROM country_production WHERE country_id = ? AND item_id = ?").get(countryId, itemId) as { annual_production: number; annual_consumption: number }).annual_production,
       5,
     );
-    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM economy_entries WHERE country_id = ?").get(countryId) as { count: number }).count, 1);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM economy_entries WHERE country_id = ?").get(countryId) as { count: number }).count, 2);
   } finally {
     closeTestDatabase(db);
   }

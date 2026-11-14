@@ -16,12 +16,8 @@ export function hasNarratorPermission(
 ): boolean {
   if (isMainNarrator(db, guildId, userId)) return true;
   return db.prepare(
-    `SELECT 1 FROM narrator_grants
-     WHERE guild_id = ? AND user_id = ?
-       AND (system = ? OR system = '*')
-       AND (action = ? OR action = '*')
-     LIMIT 1`,
-  ).get(guildId, userId, system, action) !== undefined;
+    "SELECT 1 FROM narrator_grants WHERE guild_id = ? AND user_id = ? AND system = '*' AND action = '*' LIMIT 1",
+  ).get(guildId, userId) !== undefined;
 }
 
 export function requireNarratorPermission(
@@ -71,17 +67,7 @@ export function grantNarratorPermission(
   system: string,
   action: string,
 ): void {
-  requireNarratorPermission(db, guildId, actorId, "narrators", "grant");
-  const isMain = isMainNarrator(db, guildId, actorId);
-  if (!isMain) {
-    assertDomain(system !== "*" && action !== "*", "Narradores subordinados não podem conceder acesso amplo.");
-    assertDomain(!(system === "narrators" && action === "grant"), "Apenas o narrador principal pode delegar concessões.");
-    assertDomain(
-      hasNarratorPermission(db, guildId, actorId, system, action),
-      "Você não pode conceder uma permissão que não possui.",
-      "PRIVILEGE_ESCALATION",
-    );
-  }
+  assertDomain(isMainNarrator(db, guildId, actorId), "Somente o Narrador Supremo pode nomear narradores.");
   db.prepare(
     `INSERT INTO narrator_grants (guild_id, user_id, system, action, granted_by)
      VALUES (?, ?, ?, ?, ?)
@@ -99,16 +85,7 @@ export function revokeNarratorPermission(
   system: string,
   action: string,
 ): void {
-  requireNarratorPermission(db, guildId, actorId, "narrators", "grant");
-  const isMain = isMainNarrator(db, guildId, actorId);
-  if (!isMain) {
-    assertDomain(
-      hasNarratorPermission(db, guildId, actorId, system, action),
-      "Você não pode revogar uma permissão que não possui.",
-      "PRIVILEGE_ESCALATION",
-    );
-    assertDomain(!(system === "narrators" && action === "grant"), "Apenas o narrador principal pode revogar concessões.");
-  }
+  assertDomain(isMainNarrator(db, guildId, actorId), "Somente o Narrador Supremo pode remover narradores.");
   db.prepare(
     "DELETE FROM narrator_grants WHERE guild_id = ? AND user_id = ? AND system = ? AND action = ?",
   ).run(guildId, targetUserId, system, action);
@@ -165,26 +142,17 @@ export function requireCountryPermission(
   guildId: string,
   countryId: number,
   userId: string,
-  system: PermissionSystem,
-  action: string,
+  _system: PermissionSystem,
+  _action: string,
 ): void {
   const country = db.prepare("SELECT id, guild_id, status FROM countries WHERE id = ?").get(countryId) as
     | { id: number; guild_id: string; status: string }
     | undefined;
   assertDomain(country && country.guild_id === guildId && country.status === "active", "País indisponível.", "COUNTRY_UNAVAILABLE");
   const membership = db.prepare(
-    "SELECT permissions_json FROM country_memberships WHERE country_id = ? AND user_id = ?",
-  ).get(countryId, userId) as { permissions_json: string } | undefined;
+    "SELECT 1 FROM country_memberships WHERE country_id = ? AND user_id = ?",
+  ).get(countryId, userId);
   assertDomain(membership, "Você não está associado a este país.", "COUNTRY_PRIVATE");
-  const permissions = JSON.parse(membership.permissions_json) as Record<string, boolean>;
-  const allowed = action === "read"
-    ? permissions.read === true || permissions[`${system}.${action}`] === true
-    : permissions[`${system}.${action}`] === true;
-  assertDomain(
-    allowed,
-    `Você não tem permissão de ${system}/${action} neste país.`,
-    "COUNTRY_PERMISSION_DENIED",
-  );
 }
 
 export function requireCountryOrNarratorPermission(
@@ -205,8 +173,22 @@ export function syncRoleMemberships(
   userId: string,
   memberRoleIds: readonly string[],
 ): number {
-  if (memberRoleIds.length === 0) return 0;
+  if (memberRoleIds.length === 0) {
+    db.prepare(
+      `DELETE FROM country_memberships
+       WHERE created_by = 'discord-role' AND user_id = ?
+         AND country_id IN (SELECT id FROM countries WHERE guild_id = ? AND status = 'active')`,
+    ).run(userId, guildId);
+    return 0;
+  }
   const placeholders = memberRoleIds.map(() => "?").join(",");
+  db.prepare(
+    `DELETE FROM country_memberships
+     WHERE created_by = 'discord-role' AND user_id = ?
+       AND country_id IN (
+         SELECT id FROM countries WHERE guild_id = ? AND status = 'active' AND role_id NOT IN (${placeholders})
+       )`,
+  ).run(userId, guildId, ...memberRoleIds);
   const roles = db.prepare(
     `SELECT id, name FROM countries
      WHERE guild_id = ? AND status = 'active' AND role_id IN (${placeholders})`,

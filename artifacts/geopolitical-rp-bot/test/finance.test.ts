@@ -46,20 +46,36 @@ test("transfers are atomic and duplicate interaction IDs do not debit twice", ()
   }
 });
 
-test("membership read access does not grant transfer or other write permissions", () => {
+test("country membership grants full control only within that country", () => {
   const db = createTestDatabase();
   try {
     const countryId = insertCountry(db);
     db.prepare(
-      "INSERT INTO country_memberships (country_id, user_id, permissions_json, created_by) VALUES (?, 'player', '{\"read\":true}', 'narrator')",
+      "INSERT INTO country_memberships (country_id, user_id, permissions_json, created_by) VALUES (?, 'player', '{}', 'narrator')",
     ).run(countryId);
-    assert.throws(
-      () => requireCountryPermission(db, "guild", countryId, "player", "economy", "transfer"),
-      /não tem permissão/,
-    );
-    db.prepare("UPDATE country_memberships SET permissions_json = ? WHERE country_id = ? AND user_id = 'player'")
-      .run(JSON.stringify({ read: true, "economy.transfer": true }), countryId);
     assert.doesNotThrow(() => requireCountryPermission(db, "guild", countryId, "player", "economy", "transfer"));
+    assert.throws(
+      () => requireCountryPermission(db, "guild", countryId, "outsider", "economy", "transfer"),
+      /não está associado/,
+    );
+  } finally {
+    closeTestDatabase(db);
+  }
+});
+
+test("signed narrator adjustments update the treasury and current-year ledger immediately", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { name: "Testland", treasury: 100 });
+    adjustBalance(db, countryId, "guild", "narrator", 500, "narrator_income", "Exportação de ferro");
+    adjustBalance(db, countryId, "guild", "narrator", -125, "narrator_expense", "Importação de grãos");
+    const country = db.prepare("SELECT treasury FROM countries WHERE id = ?").get(countryId) as { treasury: number };
+    const ledger = db.prepare("SELECT amount, note FROM financial_ledger WHERE country_id = ? ORDER BY rowid").all(countryId) as Array<{ amount: number; note: string }>;
+    assert.equal(country.treasury, 475);
+    assert.deepEqual(ledger.map((entry) => [entry.amount, entry.note]), [
+      [500, "Exportação de ferro"],
+      [-125, "Importação de grãos"],
+    ]);
   } finally {
     closeTestDatabase(db);
   }
