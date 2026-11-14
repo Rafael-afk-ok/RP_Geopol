@@ -90,10 +90,15 @@ export function listTradeContracts(db:Database.Database,guildId:string):Array<{i
 
 export function listSupplierDependencies(db:Database.Database,guildId:string,buyerId:number):Array<{item:string;supplier:string;quantity:number;share:number}> {
   const current=(db.prepare("SELECT current_year FROM guild_settings WHERE guild_id=?").get(guildId) as {current_year:number}|undefined)?.current_year ?? 0;
-  const rows=db.prepare(`SELECT i.name item,s.name supplier,SUM(h.quantity) quantity
-    FROM international_trade_history h JOIN items i ON i.id=h.item_id JOIN countries s ON s.id=h.seller_country_id
-    WHERE h.guild_id=? AND h.buyer_country_id=? AND h.voided_at IS NULL AND h.year>? AND h.year<=?
-    GROUP BY h.item_id,h.seller_country_id ORDER BY i.name,quantity DESC`).all(guildId,buyerId,current-5,current) as Array<{item:string;supplier:string;quantity:number}>;
+  const rows=db.prepare(`SELECT item,supplier,SUM(quantity) quantity FROM (
+      SELECT i.name item,s.name supplier,h.quantity
+      FROM international_trade_history h JOIN items i ON i.id=h.item_id JOIN countries s ON s.id=h.seller_country_id
+      WHERE h.guild_id=? AND h.buyer_country_id=? AND h.voided_at IS NULL AND h.year>? AND h.year<=?
+      UNION ALL
+      SELECT i.name item,s.name supplier,t.quantity
+      FROM player_market_trades t JOIN items i ON i.id=t.item_id JOIN countries s ON s.id=t.seller_country_id
+      WHERE t.guild_id=? AND t.buyer_country_id=? AND t.year>? AND t.year<=?
+    ) GROUP BY item,supplier ORDER BY item,quantity DESC`).all(guildId,buyerId,current-5,current,guildId,buyerId,current-5,current) as Array<{item:string;supplier:string;quantity:number}>;
   const totals=new Map<string,number>();
   for(const row of rows) totals.set(row.item,(totals.get(row.item)??0)+row.quantity);
   return rows.map(row=>({...row,share:totals.get(row.item)!>0?row.quantity/totals.get(row.item)!:0}));
@@ -104,6 +109,14 @@ export function listTradeRestrictions(db:Database.Database,guildId:string):Array
     FROM trade_restrictions r JOIN countries a ON a.id=r.imposing_country_id JOIN countries b ON b.id=r.target_country_id
     LEFT JOIN items i ON i.id=r.item_id WHERE r.guild_id=? AND r.status='active' ORDER BY r.created_at DESC LIMIT 25`)
     .all(guildId) as Array<{id:string;imposer:string;target:string;kind:string;item:string|null;reason:string}>;
+}
+
+export function assertBilateralTradeAllowed(db:Database.Database,guildId:string,sellerId:number,buyerId:number,itemId:number):void {
+  const blocked=db.prepare(`SELECT r.kind FROM trade_restrictions r WHERE r.guild_id=? AND r.status='active'
+    AND ((r.imposing_country_id=? AND r.target_country_id=?) OR (r.imposing_country_id=? AND r.target_country_id=?))
+    AND (r.kind='blockade' OR r.item_id IS NULL OR r.item_id=?) LIMIT 1`)
+    .get(guildId,sellerId,buyerId,buyerId,sellerId,itemId) as {kind:string}|undefined;
+  assertDomain(!blocked,`Comércio impedido por ${blocked?.kind==="blockade"?"bloqueio comercial":"embargo"} ativo entre os países.`);
 }
 
 export function processAnnualTradeContracts(db:Database.Database,guildId:string,actorId:string,year:number,runId:string):{applied:number;failed:number;tariffs:number;revenue:number;expenses:number} {
