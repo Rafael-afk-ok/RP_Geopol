@@ -15,13 +15,10 @@ export function hasNarratorPermission(
   action: string,
 ): boolean {
   if (isMainNarrator(db, guildId, userId)) return true;
+  // Any active narrator grant identifies the user as a full narrator.
   return db.prepare(
-    `SELECT 1 FROM narrator_grants
-     WHERE guild_id = ? AND user_id = ?
-       AND (system = ? OR system = '*')
-       AND (action = ? OR action = '*')
-     LIMIT 1`,
-  ).get(guildId, userId, system, action) !== undefined;
+    "SELECT 1 FROM narrator_grants WHERE guild_id = ? AND user_id = ? LIMIT 1",
+  ).get(guildId, userId) !== undefined;
 }
 
 export function requireNarratorPermission(
@@ -71,17 +68,7 @@ export function grantNarratorPermission(
   system: string,
   action: string,
 ): void {
-  requireNarratorPermission(db, guildId, actorId, "narrators", "grant");
-  const isMain = isMainNarrator(db, guildId, actorId);
-  if (!isMain) {
-    assertDomain(system !== "*" && action !== "*", "Narradores subordinados não podem conceder acesso amplo.");
-    assertDomain(!(system === "narrators" && action === "grant"), "Apenas o narrador principal pode delegar concessões.");
-    assertDomain(
-      hasNarratorPermission(db, guildId, actorId, system, action),
-      "Você não pode conceder uma permissão que não possui.",
-      "PRIVILEGE_ESCALATION",
-    );
-  }
+  assertDomain(isMainNarrator(db, guildId, actorId), "Somente o Narrador Supremo pode nomear narradores.");
   db.prepare(
     `INSERT INTO narrator_grants (guild_id, user_id, system, action, granted_by)
      VALUES (?, ?, ?, ?, ?)
@@ -99,16 +86,7 @@ export function revokeNarratorPermission(
   system: string,
   action: string,
 ): void {
-  requireNarratorPermission(db, guildId, actorId, "narrators", "grant");
-  const isMain = isMainNarrator(db, guildId, actorId);
-  if (!isMain) {
-    assertDomain(
-      hasNarratorPermission(db, guildId, actorId, system, action),
-      "Você não pode revogar uma permissão que não possui.",
-      "PRIVILEGE_ESCALATION",
-    );
-    assertDomain(!(system === "narrators" && action === "grant"), "Apenas o narrador principal pode revogar concessões.");
-  }
+  assertDomain(isMainNarrator(db, guildId, actorId), "Somente o Narrador Supremo pode remover narradores.");
   db.prepare(
     "DELETE FROM narrator_grants WHERE guild_id = ? AND user_id = ? AND system = ? AND action = ?",
   ).run(guildId, targetUserId, system, action);
