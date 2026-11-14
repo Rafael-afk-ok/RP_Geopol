@@ -793,11 +793,11 @@ const handlers: Record<string, Handler> = {
   ranking: async (interaction, db) => {
     const guildId = id(interaction);
     const type = interaction.options.getString("tipo", true);
-    const settings = db.prepare("SELECT current_year FROM guild_settings WHERE guild_id = ?").get(guildId) as { current_year: number } | undefined;
+    const settings = db.prepare("SELECT current_year, currency_symbol FROM guild_settings WHERE guild_id = ?").get(guildId) as { current_year: number; currency_symbol: string } | undefined;
     const year = settings?.current_year ?? 0;
     let rows: Array<{ name: string; value: number; previous?: number }>;
     let title: string;
-    let suffix = "";
+    let suffix = settings?.currency_symbol ?? "";
     if (type === "economy") {
       title = "Ranking econômico · saldo do tesouro";
       rows = db.prepare("SELECT name, treasury AS value FROM countries WHERE guild_id = ? AND status = 'active' ORDER BY treasury DESC, name COLLATE NOCASE LIMIT 10")
@@ -812,15 +812,15 @@ const handlers: Record<string, Handler> = {
       rows = db.prepare(
         "SELECT c.name, COALESCE(SUM(p.annual_production * i.production_cost), 0) AS value FROM countries c LEFT JOIN country_production p ON p.country_id = c.id LEFT JOIN items i ON i.id = p.item_id WHERE c.guild_id = ? AND c.status = 'active' GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10",
       ).all(guildId) as typeof rows;
-      suffix = " (valor estimado)";
+      suffix = ` ${settings?.currency_symbol ?? ""} (valor estimado)`;
     } else if (type === "stock") {
       title = "Ranking de estoques · valor estimado";
       rows = db.prepare(
         "SELECT c.name, COALESCE(SUM(v.quantity * i.production_cost), 0) AS value FROM countries c LEFT JOIN country_inventory v ON v.country_id = c.id LEFT JOIN items i ON i.id = v.item_id WHERE c.guild_id = ? AND c.status = 'active' GROUP BY c.id ORDER BY value DESC, c.name COLLATE NOCASE LIMIT 10",
       ).all(guildId) as typeof rows;
-      suffix = " (valor estimado)";
+      suffix = ` ${settings?.currency_symbol ?? ""} (valor estimado)`;
     } else {
-      title = `Ranking de crescimento econômico · ano ${year}`;
+      title = `Ranking de variação do resultado financeiro · ano ${year}`;
       rows = db.prepare(
         `SELECT c.name,
           COALESCE(SUM(CASE WHEN l.year = ? THEN l.amount ELSE 0 END), 0) AS value,
@@ -833,11 +833,11 @@ const handlers: Record<string, Handler> = {
     const lines = rows.map((row, index) => {
       const value = type === "growth" && row.previous !== undefined && row.previous > 0
         ? `${(((row.value - row.previous) / row.previous) * 100).toFixed(1).replace(".", ",")}%`
-        : type === "growth" ? "—" : `${formatNumber(row.value, 2)}${suffix}`;
+        : type === "growth" ? "—" : `${formatNumber(row.value, type === "population" ? 0 : 2)}${type === "population" ? suffix : ` ${suffix}`}`;
       return `**${index + 1}. ${row.name}** — ${value}`;
     });
     const embed = new EmbedBuilder().setTitle(title).setDescription(lines.length ? lines.join("\n") : "Nenhum país cadastrado.")
-      .setFooter({ text: type === "growth" ? "Variação do resultado financeiro líquido em relação ao ano anterior; — = base anterior nula/negativa." : "Top 10 países · valores atuais" })
+      .setFooter({ text: type === "growth" ? "Variação percentual do resultado financeiro líquido em relação ao ano anterior; — = base anterior nula/negativa." : "Top 10 países · valores atuais" })
       .setColor(0x315e56);
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
