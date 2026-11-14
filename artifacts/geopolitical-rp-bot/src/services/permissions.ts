@@ -176,19 +176,19 @@ export function syncRoleMemberships(
   if (memberRoleIds.length === 0) {
     db.prepare(
       `DELETE FROM country_memberships
-       WHERE created_by = 'discord-role'
+       WHERE created_by = 'discord-role' AND user_id = ?
          AND country_id IN (SELECT id FROM countries WHERE guild_id = ? AND status = 'active')`,
-    ).run(guildId);
+    ).run(userId, guildId);
     return 0;
   }
   const placeholders = memberRoleIds.map(() => "?").join(",");
   db.prepare(
     `DELETE FROM country_memberships
-     WHERE created_by = 'discord-role'
+     WHERE created_by = 'discord-role' AND user_id = ?
        AND country_id IN (
          SELECT id FROM countries WHERE guild_id = ? AND status = 'active' AND role_id NOT IN (${placeholders})
        )`,
-  ).run(guildId, ...memberRoleIds);
+  ).run(userId, guildId, ...memberRoleIds);
   const roles = db.prepare(
     `SELECT id, name FROM countries
      WHERE guild_id = ? AND status = 'active' AND role_id IN (${placeholders})`,
