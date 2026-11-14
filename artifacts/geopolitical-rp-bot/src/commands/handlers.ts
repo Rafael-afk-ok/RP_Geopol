@@ -739,7 +739,7 @@ const handlers: Record<string, Handler> = {
   ajuda: async (interaction) => {
     const embed = new EmbedBuilder()
       .setTitle("Bot de RP Geopolítico")
-      .setDescription("Use `/configurar principal` como dono do servidor para iniciar. Depois, configure a moeda, crie países e associe cargos do Discord. Países são privados; administradores podem delegar permissões por sistema e ação.")
+      .setDescription("Use `/configurar principal` como dono ou administrador do servidor para iniciar. Depois, configure a moeda, crie países e associe cargos do Discord. Países são privados; administradores podem delegar permissões por sistema e ação.")
       .addFields(
         { name: "Países e jogadores", value: "`/pais` · `/jogador` · `/permissao`" },
         { name: "Economia e itens", value: "`/economia` · `/transferir` · `/inventario` · `/produzir`" },
