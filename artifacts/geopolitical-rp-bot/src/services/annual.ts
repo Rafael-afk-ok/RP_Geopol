@@ -16,7 +16,7 @@ interface AnnualSnapshot {
   inventory: Array<{ country_id: number; item_id: number; quantity: number }>;
   productionOrders: Array<{ id: string; remaining_years: number; status: string }>;
   economyEntries: Array<{ id: number; active: number }>;
-  globalStock: Array<{ item_id: number; quantity: number; current_price: number }>;
+  globalStock: Array<{ item_id: number; quantity: number; current_price: number; base_price: number; min_price: number; max_price: number }>;
   playerOffers: Array<{ id: string; remaining_quantity: number; status: string }>;
 }
 
@@ -47,7 +47,7 @@ function snapshotGuild(db: Database.Database, guildId: string): AnnualSnapshot {
        JOIN countries c ON c.id = e.country_id WHERE c.guild_id = ? ORDER BY e.id`,
     ).all(guildId) as AnnualSnapshot["economyEntries"],
     globalStock: db.prepare(
-      "SELECT item_id, quantity, current_price FROM global_stock WHERE guild_id = ? ORDER BY item_id",
+      "SELECT item_id, quantity, current_price, base_price, min_price, max_price FROM global_stock WHERE guild_id = ? ORDER BY item_id",
     ).all(guildId) as AnnualSnapshot["globalStock"],
     playerOffers: db.prepare(
       "SELECT id, remaining_quantity, status FROM player_offers WHERE guild_id = ? ORDER BY id",
@@ -90,12 +90,15 @@ export function processAnnualTurn(
     const settings = db.prepare("SELECT * FROM guild_settings WHERE guild_id = ?").get(guildId) as
       | {
           current_year: number;
+          currency_decimals: number;
           inflation_rate_percent: number;
           inflation_penalty_mode: "linear" | "exponential";
           inflation_penalty_percent_per_1000: number;
           food_shortage_severity: number;
           revolt_normalization_per_year: number;
           global_market_price_sensitivity: number;
+          global_market_max_annual_increase_percent: number;
+          global_market_price_decay_percent: number;
         }
       | undefined;
     assertDomain(settings, "Servidor ainda não foi inicializado.");
@@ -291,7 +294,7 @@ export function processAnnualTurn(
     }
 
     // Apply active bilateral agreements at the annual close. Insufficient funds/stock pauses that installment.
-    const transfers = db.prepare("SELECT * FROM scheduled_transfers WHERE guild_id = ? AND status = 'active' AND accepted = 1 ORDER BY created_at, id").all(guildId) as Array<{ id: string; from_country_id: number; to_country_id: number; transfer_type: "money" | "item"; item_id: number | null; amount: number; remaining_years: number; description: string }>;
+    const transfers = db.prepare("SELECT * FROM scheduled_transfers WHERE guild_id = ? AND status = 'active' ORDER BY created_at, id").all(guildId) as Array<{ id: string; from_country_id: number; to_country_id: number; transfer_type: "money" | "item"; item_id: number | null; amount: number; remaining_years: number; description: string }>;
     for (const transfer of transfers) {
       const from = db.prepare("SELECT treasury, debt_limit FROM countries WHERE id = ? AND status = 'active'").get(transfer.from_country_id) as { treasury: number; debt_limit: number } | undefined;
       const to = db.prepare("SELECT id, treasury, max_money FROM countries WHERE id = ? AND status = 'active'").get(transfer.to_country_id) as { id: number; treasury: number; max_money: number | null } | undefined;
@@ -391,11 +394,12 @@ export function processAnnualTurn(
 
     // Inflation is global; trade pressure adds demand/supply movement to each shared price.
     const stockRows = db.prepare(
-      "SELECT item_id, quantity, current_price, min_price, max_price FROM global_stock WHERE guild_id = ? ORDER BY item_id",
+      "SELECT item_id, quantity, current_price, base_price, min_price, max_price FROM global_stock WHERE guild_id = ? ORDER BY item_id",
     ).all(guildId) as Array<{
       item_id: number;
       quantity: number;
       current_price: number;
+      base_price: number;
       min_price: number;
       max_price: number;
     }>;
@@ -410,10 +414,24 @@ export function processAnnualTurn(
       const denominator = Math.max(1, stock.quantity + tradedVolume);
       const demandPressure = (volume.bought - volume.sold) / denominator * settings.global_market_price_sensitivity;
       const inflationPressure = settings.inflation_rate_percent / 100;
-      const nextPrice = Math.min(
-        stock.max_price,
-        Math.max(stock.min_price, stock.current_price * (1 + inflationPressure + demandPressure)),
-      );
+      const decay = settings.global_market_price_decay_percent / 100;
+      let nextPrice: number;
+      if (volume.bought <= 0 && volume.sold <= 0) {
+        // Without purchases, prices drift toward the base. Near/below the base,
+        // the decline becomes progressively smaller as it approaches the minimum.
+        const nearBase = stock.current_price <= stock.base_price * 1.01;
+        const reference = nearBase ? stock.min_price : stock.base_price;
+        nextPrice = stock.current_price - Math.max(0, stock.current_price - reference) * decay;
+      } else {
+        const rawChange = inflationPressure + demandPressure;
+        const boundedChange = rawChange > 0
+          ? Math.min(rawChange, settings.global_market_max_annual_increase_percent / 100)
+          : rawChange;
+        nextPrice = stock.current_price * (1 + boundedChange);
+      }
+      const priceScale = 10 ** settings.currency_decimals;
+      nextPrice = Math.round((nextPrice + Number.EPSILON) * priceScale) / priceScale;
+      nextPrice = Math.min(stock.max_price, Math.max(stock.min_price, nextPrice));
       db.prepare("UPDATE global_stock SET current_price = ? WHERE guild_id = ? AND item_id = ?").run(
         nextPrice,
         guildId,
@@ -516,9 +534,12 @@ export function undoAnnualTurn(
       }
     }
     for (const stock of before.globalStock) {
-      db.prepare("UPDATE global_stock SET quantity = ?, current_price = ? WHERE guild_id = ? AND item_id = ?").run(
+      db.prepare("UPDATE global_stock SET quantity = ?, current_price = ?, base_price = ?, min_price = ?, max_price = ? WHERE guild_id = ? AND item_id = ?").run(
         stock.quantity,
         stock.current_price,
+        stock.base_price,
+        stock.min_price,
+        stock.max_price,
         guildId,
         stock.item_id,
       );

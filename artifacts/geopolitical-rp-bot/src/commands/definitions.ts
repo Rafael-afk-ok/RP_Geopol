@@ -30,7 +30,9 @@ export const commandBuilders = [
     .addSubcommand((subcommand) =>
       subcommand.setName("mercado").setDescription("Configura duração de ofertas e sensibilidade de preços")
         .addIntegerOption((option) => option.setName("validade_anos").setDescription("Validade de ofertas (3 a 5 anos)").setRequired(true).setMinValue(3).setMaxValue(5))
-        .addNumberOption((option) => option.setName("sensibilidade").setDescription("Impacto de oferta e demanda (0 a 5)").setRequired(true).setMinValue(0).setMaxValue(5)),
+        .addNumberOption((option) => option.setName("sensibilidade").setDescription("Impacto de oferta e demanda (0 a 5)").setRequired(true).setMinValue(0).setMaxValue(5))
+        .addNumberOption((option) => option.setName("aumento_maximo").setDescription("Aumento máximo anual do preço global, em %").setRequired(true).setMinValue(0).setMaxValue(500))
+        .addNumberOption((option) => option.setName("recuo_anual").setDescription("Percentual anual de aproximação ao limite de baixa, em %").setRequired(true).setMinValue(0).setMaxValue(100)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("populacao").setDescription("Configura escassez alimentar e normalização da revolta")
@@ -192,6 +194,7 @@ export const commandBuilders = [
         .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("estoque").setDescription("Quantidade global disponível").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("preco").setDescription("Preço atual por unidade").setRequired(true).setMinValue(0.01))
+        .addNumberOption((option) => option.setName("preco_base").setDescription("Preço-base de referência do item").setRequired(true).setMinValue(0.01))
         .addNumberOption((option) => option.setName("preco_minimo").setDescription("Preço mínimo").setRequired(true).setMinValue(0.01))
         .addNumberOption((option) => option.setName("preco_maximo").setDescription("Preço máximo").setRequired(true).setMinValue(0.01)),
     ),
@@ -236,7 +239,10 @@ export const commandBuilders = [
         .addStringOption((option) => option.setName("oferta_id").setDescription("ID da oferta").setRequired(true)),
     )
     .addSubcommand((subcommand) =>
-      subcommand.setName("catalogo").setDescription("Lista ofertas públicas e estoque global"),
+      subcommand.setName("catalogo").setDescription("Abre o painel público de ofertas e preços globais"),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand.setName("painel").setDescription("Abre o painel público do mercado mundial"),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("historico").setDescription("Consulta compras e vendas dos seus países e os preços globais")

@@ -205,27 +205,31 @@ export function setGlobalStock(
   itemId: number,
   quantity: number,
   currentPrice: number,
+  basePrice: number,
   minimumPrice: number,
   maximumPrice: number,
 ): void {
   requireNarratorPermission(db, guildId, actorId, "market", "configure");
   assertDomain(
-    [quantity, currentPrice, minimumPrice, maximumPrice].every(Number.isFinite) &&
-      quantity >= 0 && currentPrice > 0 && minimumPrice > 0 && maximumPrice >= minimumPrice,
+    [quantity, currentPrice, basePrice, minimumPrice, maximumPrice].every(Number.isFinite) &&
+      quantity >= 0 && currentPrice > 0 && basePrice > 0 && minimumPrice > 0 && maximumPrice >= minimumPrice,
     "Estoque ou faixa de preços inválida.",
   );
   assertDomain(currentPrice >= minimumPrice && currentPrice <= maximumPrice, "O preço atual deve ficar dentro dos limites.");
+  assertDomain(basePrice >= minimumPrice && basePrice <= maximumPrice, "O preço-base deve ficar dentro dos limites.");
   const item = db.prepare("SELECT id FROM items WHERE id = ? AND guild_id = ? AND global_tradeable = 1").get(itemId, guildId);
   assertDomain(item, "Item não configurado para o mercado global.");
   db.prepare(
-    `INSERT INTO global_stock (guild_id, item_id, quantity, current_price, min_price, max_price)
-     VALUES (?, ?, ?, ?, ?, ?)
+    `INSERT INTO global_stock (guild_id, item_id, quantity, current_price, base_price, min_price, max_price)
+     VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT (guild_id, item_id) DO UPDATE SET quantity = excluded.quantity,
-       current_price = excluded.current_price, min_price = excluded.min_price, max_price = excluded.max_price`,
-  ).run(guildId, itemId, quantity, currentPrice, minimumPrice, maximumPrice);
+       current_price = excluded.current_price, base_price = excluded.base_price,
+       min_price = excluded.min_price, max_price = excluded.max_price`,
+  ).run(guildId, itemId, quantity, currentPrice, basePrice, minimumPrice, maximumPrice);
   audit(db, guildId, actorId, "configure_global_stock", "global_stock", `${guildId}:${itemId}`, {
     quantity,
     currentPrice,
+    basePrice,
     minimumPrice,
     maximumPrice,
   });

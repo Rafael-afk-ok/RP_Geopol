@@ -164,6 +164,8 @@ const handlers: Record<string, Handler> = {
         interaction.user.id,
         interaction.options.getInteger("validade_anos", true),
         interaction.options.getNumber("sensibilidade", true),
+        interaction.options.getNumber("aumento_maximo", true),
+        interaction.options.getNumber("recuo_anual", true),
       );
       await reply(interaction, "Regras de validade e preços do mercado atualizadas.");
       return;
@@ -488,6 +490,7 @@ const handlers: Record<string, Handler> = {
         itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("estoque", true),
         interaction.options.getNumber("preco", true),
+        interaction.options.getNumber("preco_base", true),
         interaction.options.getNumber("preco_minimo", true),
         interaction.options.getNumber("preco_maximo", true),
       );
@@ -662,17 +665,18 @@ const handlers: Record<string, Handler> = {
     }
     const offers = listOffers(db, guildId);
     const stock = db.prepare(
-      `SELECT i.id, i.name, g.quantity, g.current_price, g.min_price, g.max_price
+      `SELECT i.id, i.name, g.quantity, g.current_price, g.base_price, g.min_price, g.max_price
        FROM global_stock g JOIN items i ON i.id = g.item_id WHERE g.guild_id = ? ORDER BY i.name`,
-    ).all(guildId) as Array<{ id: number; name: string; quantity: number; current_price: number; min_price: number; max_price: number }>;
+    ).all(guildId) as Array<{ id: number; name: string; quantity: number; current_price: number; base_price: number; min_price: number; max_price: number }>;
     const embed = new EmbedBuilder()
-      .setTitle("Mercado")
+      .setTitle("Mercado mundial · painel público")
+      .setDescription("Ofertas entre países e preços do mercado mundial. As compras e vendas globais influenciam os preços no fechamento de cada ano.")
       .addFields(
         { name: "Ofertas entre países", value: offers.length
           ? offers.slice(0, 10).map((offer) => `\`${offer.id.slice(0, 8)}\` · ${offer.item} × ${formatNumber(offer.remaining_quantity, 2)} · ${formatNumber(offer.unit_price, 2)} ${offer.currency_symbol} · expira no ano ${offer.expires_year}`).join("\n").slice(0, 1000)
           : "Nenhuma oferta aberta." },
         { name: "Mercado global", value: stock.length
-          ? stock.slice(0, 10).map((item) => `**${item.name}** · estoque ${formatNumber(item.quantity, 2)} · preço ${formatNumber(item.current_price, 2)} [${formatNumber(item.min_price, 2)}–${formatNumber(item.max_price, 2)}]`).join("\n").slice(0, 1000)
+          ? stock.slice(0, 10).map((item) => `**${item.name}** · estoque ${formatNumber(item.quantity, 2)} · atual ${formatNumber(item.current_price, 2)} · base ${formatNumber(item.base_price, 2)} [${formatNumber(item.min_price, 2)}–${formatNumber(item.max_price, 2)}]`).join("\n").slice(0, 1000)
           : "Nenhum produto global configurado." },
       )
       .setColor(0x315e56);
@@ -823,8 +827,28 @@ const handlers: Record<string, Handler> = {
     }
     if (interaction.options.getSubcommand() === "avancar") {
       const result = processAnnualTurn(db, guildId, interaction.user.id, interaction.id);
+      const priceChanges = db.prepare(
+        `SELECT i.name AS item, h.previous_price, h.new_price
+         FROM global_price_history h JOIN items i ON i.id = h.item_id
+         WHERE h.run_id = ? AND h.voided_at IS NULL
+           AND ABS(h.new_price - h.previous_price) > 0.000001
+         ORDER BY i.name COLLATE NOCASE`,
+      ).all(result.runId) as Array<{ item: string; previous_price: number; new_price: number }>;
+      const priceEmbed = new EmbedBuilder()
+        .setTitle(`Mercado mundial · reajustes do ano ${result.year}`)
+        .setDescription(priceChanges.length
+          ? priceChanges.map((change) => {
+              const delta = change.new_price - change.previous_price;
+              const percent = change.previous_price > 0 ? delta / change.previous_price * 100 : 0;
+              const symbol = delta > 0.000001 ? "▲" : delta < -0.000001 ? "▼" : "•";
+              return `${symbol} **${change.item}** · ${formatNumber(change.previous_price, 2)} → ${formatNumber(change.new_price, 2)} (${delta >= 0 ? "+" : ""}${formatNumber(percent, 2)}%)`;
+            }).join("\n").slice(0, 4000)
+          : "Nenhum preço global foi alterado neste ano.")
+        .setColor(0x315e56)
+        .setFooter({ text: "Os preços são reajustados no fechamento anual." });
       await interaction.editReply({
         content: `Ano **${result.year}** processado atomicamente.\nPaíses: ${result.summary.countries} · Receitas: ${formatNumber(result.summary.revenue, 2)} · Despesas: ${formatNumber(result.summary.expenses, 2)} · Produções concluídas: ${result.summary.completedOrders}\nDéficit populacional: ${formatNumber(result.summary.populationShortage, 2)} · Déficit militar: ${formatNumber(result.summary.armyShortage, 2)}\nAcordos executados: ${result.summary.transfersApplied} · Parcelas suspensas por falta de saldo/estoque: ${result.summary.transfersFailed} · Ofertas expiradas: ${result.summary.expiredOffers}\nRegistro: \`${result.runId}\``,
+        embeds: [priceEmbed],
         allowedMentions: { parse: [] },
       });
       return;
