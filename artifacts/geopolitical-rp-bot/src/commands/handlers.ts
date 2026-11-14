@@ -892,7 +892,7 @@ const handlers: Record<string, Handler> = {
       if (itemName === null && target === null && quantity === null) {
         const rows = listGlobalConsumptionRules(db, guildId);
         await reply(interaction, rows.length
-          ? "**Padrões globais de consumo (herdados por novos países)**\\n" + rows.map((row) => `**${row.item_name}** — ${row.target === "population" ? "população" : "exército"}: ${formatNumber(row.quantity_per_unit, 4)} por unidade/ano`).join("\\n")
+          ? "**Padrões globais de consumo (herdados por novos países)**\n" + rows.map((row) => `**${row.item_name}** — ${row.target === "population" ? "população" : "exército"}: ${formatNumber(row.quantity_per_unit, 4)} por unidade/ano`).join("\n")
           : "Nenhum padrão global configurado. Informe item, alvo e quantidade para criar o primeiro.");
         return;
       }
