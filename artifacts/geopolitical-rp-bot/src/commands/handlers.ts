@@ -13,7 +13,7 @@ import { processAnnualTurn, undoAnnualTurn, listAnnualRuns } from "../services/a
 import { addEconomyEntry, adjustBalance, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
 import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
-import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, setCountryProduction, setGlobalStock } from "../services/inventory.js";
+import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
 import { configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
 import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, isMainNarrator, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission, revokeNarratorPermission, setCountryPermission } from "../services/permissions.js";
@@ -401,6 +401,31 @@ const handlers: Record<string, Handler> = {
   inventario: async (interaction, db) => {
     const guildId = id(interaction);
     const subcommand = interaction.options.getSubcommand();
+    if (subcommand === "painel") {
+      const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais") ?? undefined);
+      ensureDefaultCatalog(db, guildId, interaction.user.id);
+      const rows = listCountryInventory(db, guildId, interaction.user.id, country.id);
+      const categories = ["Recursos naturais", "Indústria e bens", "Militar"];
+      const selected = "Recursos naturais";
+      const filtered = rows.filter((row) => row.category === selected);
+      const embed = new EmbedBuilder()
+        .setTitle(`Inventário nacional · ${country.name}`)
+        .setDescription(filtered.length
+          ? filtered.map((row) => {
+              const net = row.annual_production - row.annual_consumption;
+              return `**${row.name}**\nEstoque: ${formatNumber(row.quantity, 2)} ${row.unit ?? ""} · Produção anual: ${formatNumber(row.annual_production, 2)} · Consumo anual: ${formatNumber(row.annual_consumption, 2)} · Variação: ${net >= 0 ? "+" : ""}${formatNumber(net, 2)}`;
+            }).join("\n\n").slice(0, 3900)
+          : "Nenhum item nesta categoria.")
+        .setFooter({ text: "Selecione uma categoria nos botões abaixo." })
+        .setColor(0x315e56);
+      const buttons = new ActionRowBuilder<ButtonBuilder>().addComponents(
+        new ButtonBuilder().setCustomId(`inventario_pagina:${country.id}:resources`).setLabel("Recursos naturais").setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId(`inventario_pagina:${country.id}:industry`).setLabel("Indústria e bens").setStyle(ButtonStyle.Secondary),
+        new ButtonBuilder().setCustomId(`inventario_pagina:${country.id}:military`).setLabel("Militar").setStyle(ButtonStyle.Secondary),
+      );
+      await interaction.editReply({ embeds: [embed], components: [buttons], allowedMentions: { parse: [] } });
+      return;
+    }
     if (subcommand === "categoria") {
       const categoryId = createCustomItemCategory(
         db,
