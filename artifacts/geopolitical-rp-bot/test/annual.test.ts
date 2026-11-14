@@ -226,3 +226,34 @@ test("food shortage buys available global food and finances only the shortfall t
     closeTestDatabase(db);
   }
 });
+
+
+test("non-food population rules do not disable default food consumption", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { name: "MixedNeeds", population: 10, foodPerPerson: 1 });
+    const foodId = Number(db.prepare("INSERT INTO items (guild_id, name, category, is_food, created_by) VALUES ('guild', 'Grain', 'common', 1, 'narrator')").run().lastInsertRowid);
+    const clothId = Number(db.prepare("INSERT INTO items (guild_id, name, category, is_food, created_by) VALUES ('guild', 'Cloth', 'common', 0, 'narrator')").run().lastInsertRowid);
+    db.prepare("INSERT INTO country_inventory (country_id, item_id, quantity) VALUES (?, ?, 100)").run(countryId, foodId);
+    db.prepare("INSERT INTO country_inventory (country_id, item_id, quantity) VALUES (?, ?, 100)").run(countryId, clothId);
+    db.prepare("INSERT INTO country_consumption_rules (country_id, item_id, target, quantity_per_unit, updated_by) VALUES (?, ?, 'population', 0.5, 'narrator')").run(countryId, clothId);
+    processAnnualTurn(db, "guild", "narrator", "mixed-population-needs");
+    assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(countryId, foodId) as { quantity: number }).quantity, 90);
+    assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(countryId, clothId) as { quantity: number }).quantity, 95);
+  } finally { closeTestDatabase(db); }
+});
+
+test("undo restores inflation and voids only annual market transactions", () => {
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { name: "Hungry", treasury: -1200, debtLimit: 1200, population: 100, foodPerPerson: 1 });
+    const foodId = Number(db.prepare("INSERT INTO items (guild_id, name, category, is_food, global_tradeable, created_by) VALUES ('guild', 'Grain', 'common', 1, 1, 'narrator')").run().lastInsertRowid);
+    db.prepare("INSERT INTO global_stock (guild_id, item_id, quantity, current_price, base_price, min_price, max_price, max_quantity, annual_replenishment) VALUES ('guild', ?, 40, 2, 2, 1, 10, 100, 0)").run(foodId);
+    const run = processAnnualTurn(db, "guild", "narrator", "undo-inflation-market");
+    assert.equal((db.prepare("SELECT inflation_issued FROM countries WHERE id = ?").get(countryId) as { inflation_issued: number }).inflation_issued, 80);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM global_market_trades WHERE run_id = ? AND voided_at IS NULL").get(run.runId) as { n: number }).n, 1);
+    undoAnnualTurn(db, "guild", "narrator");
+    assert.equal((db.prepare("SELECT inflation_issued FROM countries WHERE id = ?").get(countryId) as { inflation_issued: number }).inflation_issued, 0);
+    assert.equal((db.prepare("SELECT COUNT(*) AS n FROM global_market_trades WHERE run_id = ? AND voided_at IS NOT NULL").get(run.runId) as { n: number }).n, 1);
+  } finally { closeTestDatabase(db); }
+});

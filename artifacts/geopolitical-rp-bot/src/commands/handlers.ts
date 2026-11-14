@@ -600,13 +600,13 @@ const handlers: Record<string, Handler> = {
         ? db.prepare(
             `SELECT t.year, i.name AS item, c.name AS country, t.direction, t.quantity, t.unit_price, t.total
              FROM global_market_trades t JOIN items i ON i.id = t.item_id JOIN countries c ON c.id = t.country_id
-             WHERE t.guild_id = ? ORDER BY t.created_at DESC LIMIT 10 OFFSET ?`,
+             WHERE t.guild_id = ? AND t.voided_at IS NULL ORDER BY t.created_at DESC LIMIT 10 OFFSET ?`,
           ).all(guildId, offset)
         : db.prepare(
             `SELECT t.year, i.name AS item, c.name AS country, t.direction, t.quantity, t.unit_price, t.total
              FROM global_market_trades t JOIN items i ON i.id = t.item_id JOIN countries c ON c.id = t.country_id
              JOIN country_memberships m ON m.country_id = t.country_id
-             WHERE t.guild_id = ? AND m.user_id = ? ORDER BY t.created_at DESC LIMIT 10 OFFSET ?`,
+             WHERE t.guild_id = ? AND t.voided_at IS NULL AND m.user_id = ? ORDER BY t.created_at DESC LIMIT 10 OFFSET ?`,
           ).all(guildId, interaction.user.id, offset);
       const prices = db.prepare(
         `SELECT h.year, i.name AS item, h.previous_price, h.new_price
@@ -728,20 +728,18 @@ const handlers: Record<string, Handler> = {
        FROM items i LEFT JOIN country_inventory v ON v.item_id = i.id AND v.country_id = ?
        WHERE i.guild_id = ? AND i.is_food = 1`,
     ).get(countryId, guildId) as { quantity: number }).quantity;
-    const foodNeed = populationRules.length
+    const foodNeed = foodRules.length
       ? foodRules.reduce((sum, rule) => sum + row.population * rule.quantity_per_unit, 0)
       : row.population * row.food_per_person;
     const foodStockForRules = foodRules.reduce((sum, rule) => sum + rule.stock, 0);
-    const displayedFoodStock = populationRules.length ? foodStockForRules : totalFoodStock;
-    const foodDeficit = populationRules.length
+    const displayedFoodStock = foodRules.length ? foodStockForRules : totalFoodStock;
+    const foodDeficit = foodRules.length
       ? foodRules.reduce((sum, rule) => sum + Math.max(0, row.population * rule.quantity_per_unit - rule.stock), 0)
       : Math.max(0, foodNeed - totalFoodStock);
-    const foodDetails = populationRules.length
-      ? foodRules.length
-        ? foodRules.slice(0, 8).map((rule) =>
-          `• **${rule.name}:** ${formatNumber(row.population * rule.quantity_per_unit, 2)} necessários/ano · ${formatNumber(rule.stock, 2)} em estoque`,
-        ).join("\\n")
-        : "Nenhum alimento configurado para consumo populacional."
+    const foodDetails = foodRules.length
+      ? foodRules.slice(0, 8).map((rule) =>
+        `• **${rule.name}:** ${formatNumber(row.population * rule.quantity_per_unit, 2)} necessários/ano · ${formatNumber(rule.stock, 2)} em estoque`,
+      ).join("\\n")
       : `Consumo padrão: ${formatNumber(row.food_per_person, 4)} por habitante/ano, distribuído entre os alimentos cadastrados.`;
     const foodSummary = [
       `Necessidade anual: **${formatNumber(foodNeed, 2)}**`,
@@ -1040,7 +1038,9 @@ const handlers: Record<string, Handler> = {
     const page = interaction.options.getInteger("pagina") ?? 1;
     const rows = db.prepare(
       `SELECT year, kind, amount, note, actor_id, created_at FROM financial_ledger
-       WHERE guild_id = ? AND country_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 10 OFFSET ?`,
+       WHERE guild_id = ? AND country_id = ? AND reversal_of IS NULL
+         AND NOT EXISTS (SELECT 1 FROM financial_ledger r WHERE r.reversal_of = financial_ledger.id)
+       ORDER BY created_at DESC, rowid DESC LIMIT 10 OFFSET ?`,
     ).all(guildId, countryId, (page - 1) * 10) as Array<{ year: number; kind: string; amount: number; note: string; actor_id: string; created_at: string }>;
     const embed = new EmbedBuilder()
       .setTitle(`Extrato · ${getCountryForView(db, guildId, interaction.user.id, countryId).name} · página ${page}`)
@@ -1123,10 +1123,10 @@ const handlers: Record<string, Handler> = {
     const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais") ?? undefined);
     const settings = db.prepare("SELECT current_year, currency_symbol FROM guild_settings WHERE guild_id = ?").get(guildId) as { current_year: number; currency_symbol: string } | undefined;
     const year = settings?.current_year ?? 0;
-    const totals = (targetYear: number) => db.prepare("SELECT COALESCE(SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END), 0) AS gains, COALESCE(SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END), 0) AS expenses FROM financial_ledger WHERE guild_id = ? AND country_id = ? AND year = ?").get(guildId, country.id, targetYear) as { gains: number; expenses: number };
+    const totals = (targetYear: number) => db.prepare("SELECT COALESCE(SUM(CASE WHEN l.amount > 0 THEN l.amount ELSE 0 END), 0) AS gains, COALESCE(SUM(CASE WHEN l.amount < 0 THEN -l.amount ELSE 0 END), 0) AS expenses FROM financial_ledger l WHERE l.guild_id = ? AND l.country_id = ? AND l.year = ? AND l.reversal_of IS NULL AND NOT EXISTS (SELECT 1 FROM financial_ledger r WHERE r.reversal_of = l.id)").get(guildId, country.id, targetYear) as { gains: number; expenses: number };
     const current = totals(year), previous = totals(year - 1);
     const taxRevenue = (db.prepare(
-      "SELECT COALESCE(SUM(amount), 0) AS total FROM financial_ledger WHERE guild_id = ? AND country_id = ? AND year = ? AND kind = 'population_tax' AND amount > 0",
+      "SELECT COALESCE(SUM(l.amount), 0) AS total FROM financial_ledger l WHERE l.guild_id = ? AND l.country_id = ? AND l.year = ? AND l.kind = 'population_tax' AND l.amount > 0 AND l.reversal_of IS NULL AND NOT EXISTS (SELECT 1 FROM financial_ledger r WHERE r.reversal_of = l.id)",
     ).get(guildId, country.id, year) as { total: number }).total;
     const net = current.gains - current.expenses, previousNet = previous.gains - previous.expenses;
     const comparison = previousNet > 0 ? `${net >= previousNet ? "+" : ""}${formatNumber(((net - previousNet) / previousNet) * 100, 1)}% em relação ao resultado do ano anterior` : "Comparação percentual indisponível (resultado anterior nulo ou negativo)";

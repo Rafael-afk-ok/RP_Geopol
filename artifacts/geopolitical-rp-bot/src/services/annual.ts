@@ -10,7 +10,7 @@ import { processAnnualTradeContracts } from "./international-trade.js";
 
 interface AnnualSnapshot {
   currentYear: number;
-  countries: Array<{ id: number; treasury: number; population: number; revolt_counter: number; army_size: number; military_readiness: number }>;
+  countries: Array<{ id: number; treasury: number; population: number; revolt_counter: number; army_size: number; military_readiness: number; inflation_issued: number }>;
   consumptionRules: Array<{ country_id: number; item_id: number; target: string; quantity_per_unit: number }>;
   equipment: Array<{ country_id: number; item_id: number; assigned_soldiers: number }>;
   transfers: Array<{ id: string; remaining_years: number; status: string }>;
@@ -30,7 +30,7 @@ function snapshotGuild(db: Database.Database, guildId: string): AnnualSnapshot {
   return {
     currentYear: settings.current_year,
     countries: db.prepare(
-      `SELECT id, treasury, population, revolt_counter, army_size, military_readiness FROM countries
+      `SELECT id, treasury, population, revolt_counter, army_size, military_readiness, inflation_issued FROM countries
        WHERE guild_id = ? AND status = 'active' ORDER BY id`,
     ).all(guildId) as AnnualSnapshot["countries"],
     consumptionRules: db.prepare(`SELECT r.country_id, r.item_id, r.target, r.quantity_per_unit FROM country_consumption_rules r JOIN countries c ON c.id = r.country_id WHERE c.guild_id = ? ORDER BY r.country_id, r.target, r.item_id`).all(guildId) as AnnualSnapshot["consumptionRules"],
@@ -203,7 +203,7 @@ export function processAnnualTurn(
 
       const operatingFlows = db.prepare(
         `SELECT
-           COALESCE(SUM((CASE WHEN i.category = 'military' THEN COALESCE(a.assigned_soldiers, 0) ELSE v.quantity END) * i.annual_maintenance), 0) AS maintenance,
+           COALESCE(SUM((CASE WHEN i.category IN ('military', 'custom') THEN COALESCE(a.assigned_soldiers, 0) ELSE v.quantity END) * i.annual_maintenance), 0) AS maintenance,
            COALESCE(SUM(v.quantity * i.annual_income_per_unit), 0) AS income,
            COALESCE(SUM(v.quantity * i.annual_expense_per_unit), 0) AS expense
          FROM country_inventory v JOIN items i ON i.id = v.item_id
@@ -366,7 +366,7 @@ export function processAnnualTurn(
       );
       const population = Math.max(0, projectedPopulation);
       db.prepare("UPDATE countries SET population = ? WHERE id = ?").run(population, country.id);
-      const rules = db.prepare("SELECT item_id, target, quantity_per_unit FROM country_consumption_rules WHERE country_id = ? ORDER BY target, item_id").all(country.id) as Array<{ item_id: number; target: "population" | "army"; quantity_per_unit: number }>;
+      const rules = db.prepare("SELECT r.item_id, r.target, r.quantity_per_unit, i.is_food FROM country_consumption_rules r JOIN items i ON i.id = r.item_id WHERE r.country_id = ? ORDER BY r.target, r.item_id").all(country.id) as Array<{ item_id: number; target: "population" | "army"; quantity_per_unit: number; is_food: number }>;
       const populationRules = rules.filter((rule) => rule.target === "population");
       const armyRules = rules.filter((rule) => rule.target === "army");
       let populationNeed = 0, populationShortage = 0, armyNeed = 0, armyShortage = 0;
@@ -376,8 +376,7 @@ export function processAnnualTurn(
         let available = Math.max(0, (stock?.quantity ?? 0) - (assigned?.assigned_soldiers ?? 0));
         let consumed = Math.min(available, need);
         let shortage = Math.max(0, need - consumed);
-        const food = db.prepare("SELECT is_food FROM items WHERE id = ? AND guild_id = ?").get(itemId, guildId) as { is_food: number } | undefined;
-        if (shortage > 0 && food?.is_food === 1) {
+        if (shortage > 0) {
           const world = db.prepare(
             "SELECT quantity, current_price FROM global_stock WHERE guild_id = ? AND item_id = ?",
           ).get(guildId, itemId) as { quantity: number; current_price: number } | undefined;
@@ -395,9 +394,9 @@ export function processAnnualTurn(
             db.prepare("UPDATE global_stock SET quantity = quantity - ? WHERE guild_id = ? AND item_id = ?").run(purchaseQuantity, guildId, itemId);
             db.prepare(
               `INSERT INTO global_market_trades
-               (id, guild_id, item_id, country_id, direction, quantity, unit_price, total, year, actor_id)
-               VALUES (?, ?, ?, ?, 'buy', ?, ?, ?, ?, ?)`,
-            ).run(randomUUID(), guildId, itemId, country.id, purchaseQuantity, world.current_price, cost, year, actorId);
+               (id, guild_id, item_id, country_id, direction, quantity, unit_price, total, year, actor_id, run_id)
+               VALUES (?, ?, ?, ?, 'buy', ?, ?, ?, ?, ?, ?)`,
+            ).run(randomUUID(), guildId, itemId, country.id, purchaseQuantity, world.current_price, cost, year, actorId, runId);
             inventoryDelta(country.id, itemId, purchaseQuantity);
             available += purchaseQuantity;
             consumed = Math.min(available, need);
@@ -407,23 +406,20 @@ export function processAnnualTurn(
         if (consumed > 0) inventoryDelta(country.id, itemId, -consumed);
         return shortage;
       };
-      if (populationRules.length) {
-        for (const rule of populationRules) {
-          const need = population * rule.quantity_per_unit;
-          populationNeed += need;
-          populationShortage += consumeRule(rule.item_id, need);
-        }
-      } else if (country.food_per_person > 0) {
+      for (const rule of populationRules) {
+        const need = population * rule.quantity_per_unit;
+        populationNeed += need;
+        populationShortage += consumeRule(rule.item_id, need);
+      }
+      // Non-food population rules do not replace the default food requirement.
+      if (!populationRules.some((rule) => rule.is_food === 1) && country.food_per_person > 0) {
         let remainingNeed = population * country.food_per_person;
-        populationNeed = remainingNeed;
+        populationNeed += remainingNeed;
         for (const foodItem of foodItems) {
           if (remainingNeed <= 0) break;
-          const shortage = consumeRule(foodItem.id, remainingNeed);
-          const consumed = remainingNeed - shortage;
-          remainingNeed = shortage;
-          void consumed;
+          remainingNeed = consumeRule(foodItem.id, remainingNeed);
         }
-        populationShortage = remainingNeed;
+        populationShortage += remainingNeed;
       }
       for (const rule of armyRules) {
         const need = country.army_size * rule.quantity_per_unit;
@@ -473,9 +469,9 @@ export function processAnnualTurn(
       adjustBalance(db, row.country_id, guildId, actorId, total, "export_income", `Exportação anual do item #${row.item_id}`, null, runId, year);
       db.prepare(
         `INSERT INTO global_market_trades
-         (id, guild_id, item_id, country_id, direction, quantity, unit_price, total, year, actor_id)
-         VALUES (?, ?, ?, ?, 'sell', ?, ?, ?, ?, ?)`,
-      ).run(randomUUID(), guildId, row.item_id, row.country_id, exported, stock.current_price, total, year, actorId);
+         (id, guild_id, item_id, country_id, direction, quantity, unit_price, total, year, actor_id, run_id)
+         VALUES (?, ?, ?, ?, 'sell', ?, ?, ?, ?, ?, ?)`,
+      ).run(randomUUID(), guildId, row.item_id, row.country_id, exported, stock.current_price, total, year, actorId, runId);
       summary.exportRevenue += total;
       summary.revenue += total;
     }
@@ -516,7 +512,7 @@ export function processAnnualTurn(
         `SELECT
            COALESCE(SUM(CASE WHEN direction = 'buy' THEN quantity ELSE 0 END), 0) AS bought,
            COALESCE(SUM(CASE WHEN direction = 'sell' THEN quantity ELSE 0 END), 0) AS sold
-         FROM global_market_trades WHERE guild_id = ? AND item_id = ? AND year = ?`,
+         FROM global_market_trades WHERE guild_id = ? AND item_id = ? AND year = ? AND voided_at IS NULL`,
       ).get(guildId, stock.item_id, settings.current_year) as { bought: number; sold: number };
       const tradedVolume = volume.bought + volume.sold;
       const denominator = Math.max(1, stock.quantity + tradedVolume);
@@ -599,12 +595,13 @@ export function undoAnnualTurn(
     const before = JSON.parse(run.before_snapshot_json) as AnnualSnapshot;
 
     for (const country of before.countries) {
-      db.prepare("UPDATE countries SET treasury = ?, population = ?, revolt_counter = ?, army_size = ?, military_readiness = ? WHERE id = ?").run(
+      db.prepare("UPDATE countries SET treasury = ?, population = ?, revolt_counter = ?, army_size = ?, military_readiness = ?, inflation_issued = COALESCE(?, inflation_issued) WHERE id = ?").run(
         country.treasury,
         country.population,
         country.revolt_counter,
         country.army_size,
         country.military_readiness,
+        country.inflation_issued ?? null,
         country.id,
       );
     }
@@ -691,6 +688,7 @@ export function undoAnnualTurn(
         entry.id,
       );
     }
+    db.prepare("UPDATE global_market_trades SET voided_at = CURRENT_TIMESTAMP WHERE run_id = ?").run(run.id);
     db.prepare("UPDATE global_price_history SET voided_at = CURRENT_TIMESTAMP WHERE run_id = ?").run(run.id);
     db.prepare("UPDATE international_trade_history SET voided_at = CURRENT_TIMESTAMP WHERE run_id = ?").run(run.id);
     db.prepare("UPDATE annual_runs SET undone_at = CURRENT_TIMESTAMP WHERE id = ?").run(run.id);

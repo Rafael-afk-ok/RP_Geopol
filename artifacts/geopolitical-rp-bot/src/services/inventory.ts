@@ -257,6 +257,16 @@ export function changeInventory(
   ) as { quantity: number } | undefined;
   const next = (current?.quantity ?? 0) + delta;
   assertDomain(Number.isFinite(next) && next >= -1e-9, "Estoque insuficiente ou quantidade resultante inválida.");
+  if (delta < 0) {
+    const assigned = db.prepare(
+      "SELECT assigned_soldiers FROM army_equipment_assignments WHERE country_id = ? AND item_id = ?",
+    ).get(countryId, itemId) as { assigned_soldiers: number } | undefined;
+    assertDomain(
+      next >= (assigned?.assigned_soldiers ?? 0) - 1e-9,
+      "Estoque insuficiente: parte dos equipamentos está atribuída ao exército e não pode ser removida, vendida ou consumida.",
+      "RESERVED_MILITARY_STOCK",
+    );
+  }
   db.prepare(
     `INSERT INTO country_inventory (country_id, item_id, quantity) VALUES (?, ?, ?)
      ON CONFLICT (country_id, item_id) DO UPDATE SET quantity = excluded.quantity, updated_at = CURRENT_TIMESTAMP`,

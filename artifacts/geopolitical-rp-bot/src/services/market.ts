@@ -137,7 +137,10 @@ export function buyPlayerOffer(
     const tariffPercent = (db.prepare("SELECT import_tariff_percent FROM country_trade_settings WHERE country_id = ?").get(buyerCountryId) as { import_tariff_percent: number } | undefined)?.import_tariff_percent ?? 0;
     const tariff = roundMoney(total * tariffPercent / 100, settings.currency_decimals);
     adjustBalance(db, buyerCountryId, guildId, actorId, -total, "market_purchase", `Compra da oferta ${offerId}`);
-    if (tariff > 0) adjustBalance(db, buyerCountryId, guildId, actorId, -tariff, "import_tariff", `Tarifa de importação · oferta ${offerId}`);
+    if (tariff > 0) {
+      adjustBalance(db, buyerCountryId, guildId, actorId, -tariff, "import_tariff", `Tarifa de importação · oferta ${offerId}`);
+      adjustBalance(db, buyerCountryId, guildId, actorId, tariff, "import_tariff_revenue", `Arrecadação de tarifa de importação · oferta ${offerId}`);
+    }
     adjustBalance(db, offer.seller_country_id, guildId, actorId, total, "market_sale", `Venda da oferta ${offerId}`);
     changeInventory(db, buyerCountryId, offer.item_id, quantity);
     const remaining = Math.max(0, offer.remaining_quantity - quantity);
