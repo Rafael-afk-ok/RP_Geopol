@@ -1056,7 +1056,12 @@ const handlers: Record<string, Handler> = {
       .addFields(
         { name: "1. Configuração inicial", value: "`/configurar principal` → `/configurar moeda` → `/pais criar` → `/jogador associar`. O Narrador Supremo pode nomear narradores com `/narrador adicionar`." },
         { name: "2. Rotina do jogador", value: "`/pais geral` → `/saldo` → `/inventario painel` → produzir, gastar e negociar. Consulte o estado do país antes de cada fechamento anual." },
-        { name: "3. Rotina do narrador", value: "Configure população, efetivo, consumo, produção e acordos; depois execute `/ano avancar`. Use `/ano desfazer` somente se não houve alterações posteriores." },
+        { name: "3. Impostos populacionais", value: "A arrecadação é mensal e processada em 12 lançamentos no fechamento anual. Fator por habitante: 1,0 até 100 milhões; 0,8 de 100 a 200 milhões; acima de 200 milhões cai 0,01 por faixa adicional de 100 mil habitantes, até o piso de 0,1." },
+        { name: "4. Fabricação", value: "`/inventario criar-item` define custo monetário e duração. `/inventario requisito` cadastra materiais por unidade. `/produzir iniciar` desconta custo e materiais; `/produzir fila` acompanha prazos; `/produzir cancelar` devolve a fração configurada dos materiais, nunca o custo monetário." },
+        { name: "5. Produção e exportações", value: "`/inventario producao-anual` configura produção, consumo e percentual exportado. No fechamento anual, o bot vende até essa porcentagem da produção disponível ao mercado global; a receita entra no rendimento como exportação. O que não for vendido fica no estoque." },
+        { name: "6. Mercado mundial", value: "`/inventario estoque-global` configura estoque inicial, preços, capacidade máxima e reposição anual. O estoque é limitado pela capacidade e recebe a reposição definida pelo Narrador em cada avanço de ano. Compras e vendas afetam os preços anuais." },
+        { name: "7. Abastecimento", value: "Se faltar alimento, o bot compra o disponível no mercado global; usa o tesouro e financia a diferença por inflação. Se o mercado não tiver alimento suficiente, o déficit aumenta a revolta. Outros materiais não geram inflação automática: sem recursos ou dinheiro, a atividade dependente deve aguardar abastecimento." },
+        { name: "8. Fechamento anual", value: "O Narrador executa `/ano avancar`. O bot calcula rendimentos, impostos, produção, consumo, exportações, reposição do mercado, abastecimento, revolta e preços. `/ano desfazer` reverte o último fechamento se nenhum dado posterior tiver sido alterado." },
       )
       .setFooter({ text: "Os comandos administrativos são privados; manual, rankings e painel de negociações são públicos." })
       .setColor(0x315e56);
