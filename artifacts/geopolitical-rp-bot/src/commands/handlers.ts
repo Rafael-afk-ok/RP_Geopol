@@ -746,14 +746,14 @@ const handlers: Record<string, Handler> = {
     const foodDetails = foodRules.length
       ? foodRules.slice(0, 8).map((rule) =>
         `• **${rule.name}:** ${formatNumber(projectedPopulation * rule.quantity_per_unit, 2)} necessários/ano · ${formatNumber(rule.stock, 2)} em estoque`,
-      ).join("\\n")
+      ).join("\n")
       : `Consumo padrão: ${formatNumber(row.food_per_person, 4)} por habitante/ano, distribuído entre os alimentos cadastrados.`;
     const foodSummary = [
       `Necessidade anual projetada: **${formatNumber(foodNeed, 2)}**`,
       `Estoque atual: **${formatNumber(displayedFoodStock, 2)}**`,
       `Déficit estimado: **${formatNumber(foodDeficit, 2)}**`,
       foodDetails,
-    ].join("\\n");
+    ].join("\n");
     const embed = new EmbedBuilder()
       .setTitle(`População · ${row.name}`)
       .addFields(
@@ -1157,7 +1157,7 @@ const handlers: Record<string, Handler> = {
       : "Nenhum acordo monetário ativo.";
     const embed = new EmbedBuilder().setTitle(`Tesouro nacional · ${country.name}`).setDescription(`**Saldo atual**\n# ${symbol} ${formatNumber(country.treasury, 2)}`).addFields(
       { name: "Ganhos do ano", value: `+ ${symbol} ${formatNumber(current.gains, 2)}`, inline: true },
-      { name: "Impostos arrecadados", value: `+ ${symbol} ${formatNumber(taxRevenue, 2)}\\nIncluídos nos ganhos do ano`, inline: true },
+      { name: "Impostos arrecadados", value: `+ ${symbol} ${formatNumber(taxRevenue, 2)}\nIncluídos nos ganhos do ano`, inline: true },
       { name: "Gastos do ano", value: `− ${symbol} ${formatNumber(current.expenses, 2)}`, inline: true },
       { name: "Resultado anual", value: `${net >= 0 ? "+" : "−"} ${symbol} ${formatNumber(Math.abs(net), 2)}`, inline: true },
       { name: "Comparação", value: comparison },
