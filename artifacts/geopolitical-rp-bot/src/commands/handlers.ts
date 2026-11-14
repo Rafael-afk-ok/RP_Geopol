@@ -135,7 +135,7 @@ const handlers: Record<string, Handler> = {
         return;
       }
       const row = db.prepare("SELECT automatic_inflation_enabled FROM countries WHERE id = ? AND guild_id = ?").get(country.id, guildId) as { automatic_inflation_enabled: number };
-      await reply(interaction, `**Configurações de ${country.name}**\\nInflação automática: **${row.automatic_inflation_enabled ? "Ativada" : "Desativada"}**`);
+      await reply(interaction, `**Configurações de ${country.name}**\nInflação automática: **${row.automatic_inflation_enabled ? "Ativada" : "Desativada"}**`);
       return;
     }
     const countries = db.prepare(
@@ -151,7 +151,7 @@ const handlers: Record<string, Handler> = {
     }
     await reply(interaction, "**Suas configurações por país**\\n" + countries.map((country) =>
       `**${country.name}** — inflação automática: ${country.automatic_inflation_enabled ? "ativada" : "desativada"}`,
-    ).join("\\n"));
+    ).join("\n"));
   },
   configurar: async (interaction, db) => {
     const guildId = id(interaction);
