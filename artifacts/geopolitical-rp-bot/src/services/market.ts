@@ -210,10 +210,10 @@ export function tradeGlobalMarket(
   requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "market", direction);
   return inTransaction(db, () => {
     const stock = db.prepare(
-      `SELECT g.quantity, g.current_price, i.name
+      `SELECT g.quantity, g.max_quantity, g.current_price, i.name
        FROM global_stock g JOIN items i ON i.id = g.item_id
        WHERE g.guild_id = ? AND g.item_id = ? AND i.global_tradeable = 1`,
-    ).get(guildId, itemId) as { quantity: number; current_price: number; name: string } | undefined;
+    ).get(guildId, itemId) as { quantity: number; max_quantity: number; current_price: number; name: string } | undefined;
     assertDomain(stock, "Produto não disponível no mercado global.");
     const settings = db.prepare("SELECT currency_decimals, current_year FROM guild_settings WHERE guild_id = ?").get(
       guildId,
@@ -229,6 +229,7 @@ export function tradeGlobalMarket(
         itemId,
       );
     } else {
+      assertDomain(stock.quantity + quantity <= stock.max_quantity + 1e-9, "A venda excede a capacidade máxima do mercado global.");
       changeInventory(db, countryId, itemId, -quantity);
       adjustBalance(db, countryId, guildId, actorId, total, "global_sale", `Venda global de ${stock.name}`);
       db.prepare("UPDATE global_stock SET quantity = quantity + ? WHERE guild_id = ? AND item_id = ?").run(
