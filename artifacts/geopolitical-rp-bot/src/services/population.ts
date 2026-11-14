@@ -63,6 +63,28 @@ export function getPopulation(db: Database.Database, guildId: string, countryId:
   return row;
 }
 
+export function configureGlobalConsumptionRule(
+  db: Database.Database, guildId: string, actorId: string,
+  itemId: number, target: "population" | "army", quantityPerUnit: number,
+): void {
+  requireNarratorPermission(db, guildId, actorId, "population", "configure");
+  assertDomain(Number.isFinite(quantityPerUnit) && quantityPerUnit >= 0, "O consumo por unidade deve ser um número não negativo.");
+  const item = db.prepare("SELECT id, category FROM items WHERE id = ? AND guild_id = ?").get(itemId, guildId) as { id: number; category: string } | undefined;
+  assertDomain(item, "Item não encontrado neste servidor.");
+  assertDomain(item.category !== "military", "Equipamentos militares são duráveis e não podem ser configurados como consumo anual.");
+  db.prepare(`INSERT INTO global_consumption_rules (guild_id, item_id, target, quantity_per_unit, updated_by)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(guild_id, item_id, target) DO UPDATE SET quantity_per_unit = excluded.quantity_per_unit, updated_by = excluded.updated_by, updated_at = CURRENT_TIMESTAMP`)
+    .run(guildId, itemId, target, quantityPerUnit, actorId);
+  audit(db, guildId, actorId, "configure_global_consumption_rule", "guild", guildId, { itemId, target, quantityPerUnit });
+}
+
+export function listGlobalConsumptionRules(db: Database.Database, guildId: string): Array<{ item_id: number; item_name: string; target: "population" | "army"; quantity_per_unit: number }> {
+  return db.prepare(`SELECT r.item_id, i.name AS item_name, r.target, r.quantity_per_unit
+    FROM global_consumption_rules r JOIN items i ON i.id = r.item_id
+    WHERE r.guild_id = ? ORDER BY r.target, i.name COLLATE NOCASE`).all(guildId) as Array<{ item_id: number; item_name: string; target: "population" | "army"; quantity_per_unit: number }>;
+}
+
 export function configureConsumptionRule(
   db: Database.Database, guildId: string, actorId: string, countryId: number,
   itemId: number, target: "population" | "army", quantityPerUnit: number,

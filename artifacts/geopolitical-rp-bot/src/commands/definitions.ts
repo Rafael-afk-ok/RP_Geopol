@@ -318,8 +318,12 @@ export const commandBuilders = [
       .addStringOption((o) => o.setName("id").setDescription("ID exibido no painel").setRequired(true).setMaxLength(36))),
 
   new SlashCommandBuilder()
-    .setName("consumo").setDescription("Configura consumo anual por população ou soldado (narrador)")
-    .addSubcommand((sub) => sub.setName("configurar").setDescription("Define quanto cada unidade consome de um item por ano")
+    .setName("consumo").setDescription("Configura padrões globais e consumo anual por país")
+    .addSubcommand((sub) => sub.setName("global").setDescription("Define ou consulta o padrão herdado por novos países")
+      .addStringOption((o) => o.setName("item").setDescription("Item consumido").setRequired(false).setMaxLength(80))
+      .addStringOption((o) => o.setName("alvo").setDescription("Quem consome").setRequired(false).addChoices({name:"População",value:"population"},{name:"Exército",value:"army"}))
+      .addNumberOption((o) => o.setName("quantidade_por_unidade").setDescription("Quantidade anual por habitante ou soldado").setRequired(false).setMinValue(0)))
+    .addSubcommand((sub) => sub.setName("configurar").setDescription("Define quanto cada unidade consome de um item por ano em um país")
       .addStringOption((o) => o.setName("pais").setDescription("País").setRequired(true).setMaxLength(80))
       .addStringOption((o) => o.setName("item").setDescription("Item consumido").setRequired(true).setMaxLength(80))
       .addStringOption((o) => o.setName("alvo").setDescription("Quem consome").setRequired(true).addChoices({name:"População",value:"population"},{name:"Exército",value:"army"}))

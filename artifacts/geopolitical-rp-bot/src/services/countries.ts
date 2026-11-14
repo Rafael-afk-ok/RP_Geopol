@@ -25,7 +25,9 @@ export function createCountry(
     throw error;
   }
   const id = Number(result.lastInsertRowid);
-  audit(db, guildId, actorId, "create_country", "country", id, { name: name.trim(), roleId });
+  db.prepare(`INSERT INTO country_consumption_rules (country_id, item_id, target, quantity_per_unit, updated_by)
+    SELECT ?, item_id, target, quantity_per_unit, ? FROM global_consumption_rules WHERE guild_id = ?`).run(id, actorId, guildId);
+  audit(db, guildId, actorId, "create_country", "country", id, { name: name.trim(), roleId, inheritedGlobalConsumptionRules: true });
   return id;
 }
 
