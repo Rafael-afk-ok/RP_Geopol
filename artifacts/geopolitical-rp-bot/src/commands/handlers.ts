@@ -470,9 +470,11 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, "Estoque e preços globais atualizados.");
       return;
     }
-    const rows = listCountryInventory(db, guildId, interaction.user.id, countryNumber(interaction, db));
+    const inventoryCountryId = countryNumber(interaction, db);
+    const inventoryCountryName = getCountryForView(db, guildId, interaction.user.id, inventoryCountryId).name;
+    const rows = listCountryInventory(db, guildId, interaction.user.id, inventoryCountryId);
     const embed = new EmbedBuilder()
-      .setTitle(`Inventário do país ${countryNumber(interaction, db)}`)
+      .setTitle(`Inventário nacional · ${inventoryCountryName}`)
       .setDescription(rows.length
         ? rows.map((row) => `**${row.name}** · ${row.category}: ${formatNumber(row.quantity, 2)}${row.unit ? ` ${row.unit}` : ""}`).join("\n").slice(0, 4000)
         : "Nenhum item configurado.")
