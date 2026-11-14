@@ -257,7 +257,7 @@ export function listCountryInventory(
   requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "inventory" as PermissionSystem, "read");
   return db.prepare(
     `SELECT i.id, i.name,
-      CASE WHEN i.category = 'military' THEN 'Militar' ELSE COALESCE(cc.name, 'Indústria e bens') END AS category,
+      CASE WHEN i.category = 'military' THEN 'Militar' WHEN cc.name = 'Recursos naturais' THEN 'Recursos naturais' ELSE 'Indústria e bens' END AS category,
       COALESCE(v.quantity, 0) AS quantity,
       COALESCE(p.annual_production, 0) AS annual_production,
       COALESCE(p.annual_consumption, 0) AS annual_consumption,
@@ -271,6 +271,7 @@ export function listCountryInventory(
 
 
 export function ensureDefaultCatalog(db: Database.Database, guildId: string, actorId: string): void {
+  inTransaction(db, () => {
   const categories = [
     { name: "Recursos naturais", description: "Matérias-primas e recursos básicos." },
     { name: "Indústria e bens", description: "Produtos industriais e bens de consumo." },
@@ -318,5 +319,6 @@ export function ensureDefaultCatalog(db: Database.Database, guildId: string, act
       item.group ? categoryIds.get(item.group) ?? null : null,
     );
   }
+  });
 }
 
