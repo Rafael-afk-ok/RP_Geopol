@@ -102,8 +102,8 @@ test("craft automatically buys missing materials from the global market when aff
 test("craft finances missing materials through inflation when treasury is insufficient", () => {
   const db = createTestDatabase();
   try {
-     db.prepare("UPDATE guild_settings SET inflation_rate_percent = 5 WHERE guild_id = 'guild'").run();
-   const countryId = insertCountry(db, { name: "Poor", treasury: 1 });
+    db.prepare("UPDATE guild_settings SET inflation_rate_percent = 5 WHERE guild_id = 'guild'").run();
+    const countryId = insertCountry(db, { name: "Poor", treasury: 1 });
     const materialId = Number(db.prepare(
       "INSERT INTO items (guild_id, name, category, global_tradeable, created_by) VALUES ('guild', 'Steel', 'common', 1, 'narrator')",
     ).run().lastInsertRowid);
@@ -149,8 +149,8 @@ test("narrator can disable fabrication for an item", () => {
 test("production buys only unassigned material and uses inflation for the shortfall", () => {
   const db = createTestDatabase();
   try {
-     db.prepare("UPDATE guild_settings SET inflation_rate_percent = 5 WHERE guild_id = 'guild'").run();
-   const countryId = insertCountry(db, { name: "Arsenal", treasury: 0, debtLimit: 0 });
+    db.prepare("UPDATE guild_settings SET inflation_rate_percent = 5 WHERE guild_id = 'guild'").run();
+    const countryId = insertCountry(db, { name: "Arsenal", treasury: 0, debtLimit: 0 });
     const materialId = Number(db.prepare(
       "INSERT INTO items (guild_id,name,category,global_tradeable,created_by) VALUES ('guild','Rifle','military',1,'narrator')",
     ).run().lastInsertRowid);
