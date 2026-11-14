@@ -154,7 +154,9 @@ export function adjustInventory(
       "SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?",
     ).get(countryId, itemId) as { quantity: number } | undefined;
     const next = (current?.quantity ?? 0) + delta;
-    assertDomain(Number.isFinite(next) && next >= -1e-9, "O estoque resultante é inválido ou ficaria negativo.");
+    const assigned = db.prepare("SELECT assigned_soldiers FROM army_equipment_assignments WHERE country_id = ? AND item_id = ?").get(countryId, itemId) as { assigned_soldiers: number } | undefined;
+    assertDomain(Number.isFinite(next) && next >= (assigned?.assigned_soldiers ?? 0) - 1e-9, "O estoque não pode ficar abaixo da quantidade de equipamentos atribuídos. Desatribua-os pelo comando /exercito equipamento antes de removê-los.");
+
     db.prepare(
       `INSERT INTO country_inventory (country_id, item_id, quantity) VALUES (?, ?, ?)
        ON CONFLICT (country_id, item_id) DO UPDATE SET quantity = excluded.quantity, updated_at = CURRENT_TIMESTAMP`,
