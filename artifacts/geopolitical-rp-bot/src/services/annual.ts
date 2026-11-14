@@ -333,9 +333,9 @@ export function processAnnualTurn(
         adjustBalance(db, transfer.to_country_id, guildId, actorId, transfer.amount, "annual_transfer_in", transfer.description || "Acordo anual", null, runId, year);
         applied = true;
       } else if (from && to && transfer.transfer_type === "item" && transfer.item_id !== null) {
-        const restricted = db.prepare(\`SELECT 1 FROM trade_restrictions r WHERE r.guild_id = ? AND r.status = 'active'
+        const restricted = db.prepare(`SELECT 1 FROM trade_restrictions r WHERE r.guild_id = ? AND r.status = 'active'
           AND ((r.imposing_country_id = ? AND r.target_country_id = ?) OR (r.imposing_country_id = ? AND r.target_country_id = ?))
-          AND (r.kind = 'blockade' OR r.item_id IS NULL OR r.item_id = ?) LIMIT 1\`)
+          AND (r.kind = 'blockade' OR r.item_id IS NULL OR r.item_id = ?) LIMIT 1`)
           .get(guildId, transfer.from_country_id, transfer.to_country_id, transfer.to_country_id, transfer.from_country_id, transfer.item_id);
         if (restricted) { summary.transfersFailed += 1; continue; }
         const stock = db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(transfer.from_country_id, transfer.item_id) as { quantity: number } | undefined;
