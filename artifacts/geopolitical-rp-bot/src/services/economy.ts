@@ -40,7 +40,7 @@ export function adjustBalance(
 ): string {
   assertDomain(Number.isFinite(delta) && delta !== 0, "O valor da operação precisa ser diferente de zero.");
   const roundedDelta = roundCurrency(db, guildId, delta);
-  assertDomain(roundedDelta !== 0, "O valor é menor que a menor unidade da moeda configurada.");
+  assertDomain(roundedDelta !== 0, "O valor é menor que a menor unidade da moeda configurada.", "AMOUNT_BELOW_PRECISION");
   const country = db.prepare(
     "SELECT id, guild_id, name, treasury, max_money, debt_limit FROM countries WHERE id = ? AND status = 'active'",
   ).get(countryId) as CountryBalance | undefined;
@@ -144,6 +144,21 @@ export function configureInflation(
       inflation_penalty_percent_per_1000 = ?, updated_at = CURRENT_TIMESTAMP WHERE guild_id = ?`,
   ).run(values.ratePercent, values.penaltyMode, values.penaltyPercentPer1000, guildId);
   audit(db, guildId, actorId, "configure_inflation", "guild", guildId, values);
+}
+
+export function setAutomaticInflation(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  countryId: number,
+  enabled: boolean,
+): void {
+  requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "economy", "edit");
+  const result = db.prepare(
+    "UPDATE countries SET automatic_inflation_enabled = ? WHERE id = ? AND guild_id = ? AND status = 'active'",
+  ).run(enabled ? 1 : 0, countryId, guildId);
+  assertDomain(result.changes > 0, "País não encontrado ou arquivado.");
+  audit(db, guildId, actorId, "set_automatic_inflation", "country", countryId, { enabled });
 }
 
 export function issueInflation(

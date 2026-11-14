@@ -110,6 +110,15 @@ export const commandBuilders = [
     ),
 
   new SlashCommandBuilder()
+    .setName("configuracoes")
+    .setDescription("Consulta e altera preferências pessoais")
+    .addSubcommand((subcommand) =>
+      subcommand.setName("pessoais").setDescription("Consulta ou altera as preferências do país associado")
+        .addStringOption((option) => option.setName("pais").setDescription("País (opcional se houver apenas um associado)").setRequired(false).setMaxLength(80))
+        .addBooleanOption((option) => option.setName("inflacao_automatica").setDescription("Permitir financiamento inflacionário automático").setRequired(false)),
+    ),
+
+  new SlashCommandBuilder()
     .setName("economia")
     .setDescription("Configura rendimentos e movimentações econômicas")
     .addSubcommand((subcommand) =>

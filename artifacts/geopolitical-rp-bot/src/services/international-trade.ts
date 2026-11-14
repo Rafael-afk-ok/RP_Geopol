@@ -138,8 +138,8 @@ export function processAnnualTradeContracts(db:Database.Database,guildId:string,
         const stock=db.prepare("SELECT quantity FROM country_inventory WHERE country_id=? AND item_id=?").get(c.seller_country_id,c.item_id) as {quantity:number}|undefined;
         const assigned=db.prepare("SELECT assigned_soldiers FROM army_equipment_assignments WHERE country_id=? AND item_id=?").get(c.seller_country_id,c.item_id) as {assigned_soldiers:number}|undefined;
         assertDomain((stock?.quantity??0)-(assigned?.assigned_soldiers??0)+1e-9>=c.quantity_per_year,"Estoque insuficiente do vendedor.");
-        adjustBalance(db,c.buyer_country_id,guildId,actorId,-total,"international_import",`Importação contratual · ano ${year}`,null,runId,year);
-        if (tariffAmount > 0) adjustBalance(db,c.buyer_country_id,guildId,actorId,tariffAmount,"import_tariff_revenue",`Arrecadação de tarifa de importação · ano ${year}`,null,runId,year);
+        adjustBalance(db,c.buyer_country_id,guildId,actorId,-base,"international_import",`Importação contratual · ano ${year}`,null,runId,year);
+        if (tariffAmount > 0) adjustBalance(db,c.buyer_country_id,guildId,actorId,-tariffAmount,"import_tariff",`Custo adicional de tarifa de importação · ano ${year}`,null,runId,year);
         adjustBalance(db,c.seller_country_id,guildId,actorId,base,"international_export",`Exportação contratual · ano ${year}`,null,runId,year);
         changeInventory(db,c.seller_country_id,c.item_id,-c.quantity_per_year);
         changeInventory(db,c.buyer_country_id,c.item_id,c.quantity_per_year);
@@ -149,7 +149,7 @@ export function processAnnualTradeContracts(db:Database.Database,guildId:string,
         db.prepare("UPDATE trade_contracts SET remaining_years=?,status=?,last_result=? WHERE id=?")
           .run(left,left===0&&c.remaining_years>0?"completed":"active","Executado no ano "+year,c.id);
       });
-      result.applied++;result.tariffs+=tariffAmount;result.revenue+=base+tariffAmount;result.expenses+=total;
+      result.applied++;result.tariffs+=tariffAmount;result.revenue+=base;result.expenses+=total;
     } catch (error) {
       const reason=error instanceof Error?error.message:"Falha financeira ou de estoque";
       db.prepare("UPDATE trade_contracts SET last_result=? WHERE id=?").run(("Suspenso: "+reason).slice(0,180),c.id);
