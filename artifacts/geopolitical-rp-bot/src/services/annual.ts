@@ -90,6 +90,7 @@ export function processAnnualTurn(
     const settings = db.prepare("SELECT * FROM guild_settings WHERE guild_id = ?").get(guildId) as
       | {
           current_year: number;
+          currency_decimals: number;
           inflation_rate_percent: number;
           inflation_penalty_mode: "linear" | "exponential";
           inflation_penalty_percent_per_1000: number;
@@ -428,6 +429,8 @@ export function processAnnualTurn(
           : rawChange;
         nextPrice = stock.current_price * (1 + boundedChange);
       }
+      const priceScale = 10 ** settings.currency_decimals;
+      nextPrice = Math.round((nextPrice + Number.EPSILON) * priceScale) / priceScale;
       nextPrice = Math.min(stock.max_price, Math.max(stock.min_price, nextPrice));
       db.prepare("UPDATE global_stock SET current_price = ? WHERE guild_id = ? AND item_id = ?").run(
         nextPrice,
