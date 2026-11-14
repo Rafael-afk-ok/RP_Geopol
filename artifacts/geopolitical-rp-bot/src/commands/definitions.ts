@@ -391,5 +391,47 @@ export const commandBuilders = [
 
   new SlashCommandBuilder().setName("ajuda").setDescription("Lista comandos e primeiros passos"),
   new SlashCommandBuilder().setName("ping").setDescription("Verifica se o bot está respondendo"),
+
+  new SlashCommandBuilder()
+    .setName("militar")
+    .setDescription("Prontidão e modernização das forças armadas")
+    .addSubcommand((s) => s.setName("consultar").setDescription("Consulta prontidão, efetivo, equipamentos e manutenção")
+      .addStringOption((o) => o.setName("pais").setDescription("País").setRequired(true).setMaxLength(80)))
+    .addSubcommand((s) => s.setName("modernizar").setDescription("Substitui equipamento militar antigo por um modelo novo")
+      .addStringOption((o) => o.setName("pais").setDescription("País").setRequired(true).setMaxLength(80))
+      .addStringOption((o) => o.setName("equipamento_antigo").setDescription("Equipamento a substituir").setRequired(true).setMaxLength(80))
+      .addStringOption((o) => o.setName("equipamento_novo").setDescription("Novo equipamento militar").setRequired(true).setMaxLength(80))
+      .addNumberOption((o) => o.setName("quantidade").setDescription("Quantidade a modernizar").setRequired(true).setMinValue(0.01))),
+
+  new SlashCommandBuilder()
+    .setName("comercio")
+    .setDescription("Contratos internacionais, tarifas e restrições comerciais")
+    .addSubcommand((s) => s.setName("contrato-criar").setDescription("Propõe contrato anual de exportação e importação")
+      .addStringOption((o) => o.setName("vendedor").setDescription("País exportador").setRequired(true).setMaxLength(80))
+      .addStringOption((o) => o.setName("comprador").setDescription("País importador").setRequired(true).setMaxLength(80))
+      .addStringOption((o) => o.setName("item").setDescription("Recurso negociado").setRequired(true).setMaxLength(80))
+      .addNumberOption((o) => o.setName("quantidade_anual").setDescription("Quantidade transferida por ano").setRequired(true).setMinValue(0.01))
+      .addNumberOption((o) => o.setName("preco_unitario").setDescription("Preço por unidade").setRequired(true).setMinValue(0.01))
+      .addIntegerOption((o) => o.setName("duracao").setDescription("Anos; 0 = duração indefinida").setRequired(true).setMinValue(0))
+      .addStringOption((o) => o.setName("termos").setDescription("Condições adicionais").setRequired(false).setMaxLength(200)))
+    .addSubcommand((s) => s.setName("contrato-aceitar").setDescription("Aceita uma proposta de contrato")
+      .addStringOption((o) => o.setName("id").setDescription("ID do contrato").setRequired(true).setMaxLength(36)))
+    .addSubcommand((s) => s.setName("contrato-cancelar").setDescription("Cancela contrato pendente ou ativo")
+      .addStringOption((o) => o.setName("id").setDescription("ID do contrato").setRequired(true).setMaxLength(36)))
+    .addSubcommand((s) => s.setName("painel").setDescription("Consulta contratos e restrições comerciais"))
+    .addSubcommand((s) => s.setName("tarifa").setDescription("Define a tarifa de importação do país")
+      .addStringOption((o) => o.setName("pais").setDescription("País importador").setRequired(true).setMaxLength(80))
+      .addNumberOption((o) => o.setName("percentual").setDescription("Tarifa sobre o valor importado (0 a 100%)").setRequired(true).setMinValue(0).setMaxValue(100)))
+    .addSubcommand((s) => s.setName("restricao-impor").setDescription("Impõe embargo ou bloqueio comercial a outro país")
+      .addStringOption((o) => o.setName("pais").setDescription("País que impõe a restrição").setRequired(true).setMaxLength(80))
+      .addStringOption((o) => o.setName("alvo").setDescription("País afetado").setRequired(true).setMaxLength(80))
+      .addStringOption((o) => o.setName("tipo").setDescription("Tipo de restrição").setRequired(true).addChoices({name:"Embargo",value:"embargo"},{name:"Bloqueio comercial",value:"blockade"}))
+      .addStringOption((o) => o.setName("item").setDescription("Item específico (opcional; bloqueio sempre é geral)").setRequired(false).setMaxLength(80))
+      .addStringOption((o) => o.setName("motivo").setDescription("Justificativa").setRequired(true).setMaxLength(200)))
+    .addSubcommand((s) => s.setName("restricao-levantar").setDescription("Encerra uma restrição imposta pelo seu país")
+      .addStringOption((o) => o.setName("id").setDescription("ID da restrição").setRequired(true).setMaxLength(36)))
+    .addSubcommand((s) => s.setName("dependencia").setDescription("Analisa a dependência de fornecedores externos")
+      .addStringOption((o) => o.setName("pais").setDescription("País importador").setRequired(true).setMaxLength(80))),
+
 ].map((builder) => builder.toJSON());
 
