@@ -50,7 +50,7 @@ function jsonValue(value: string | null): unknown {
 function userCountriesEmbed(title: string, rows: Array<{ id: number; name: string }>): EmbedBuilder {
   return new EmbedBuilder()
     .setTitle(title)
-    .setDescription(rows.length ? rows.map((row) => `**${row.name}** — ID \`${row.id}\``).join("\n") : "Nenhum país disponível.")
+    .setDescription(rows.length ? rows.map((row) => `**${row.name}**`).join("\\n") : "Nenhum país disponível.")
     .setColor(0x315e56);
 }
 
@@ -176,7 +176,7 @@ const handlers: Record<string, Handler> = {
     const subcommand = interaction.options.getSubcommand();
     if (subcommand === "criar") {
       const role = interaction.options.getRole("cargo", true);
-      const countryId = createCountry(
+      createCountry(
         db,
         guildId,
         interaction.user.id,
@@ -188,8 +188,9 @@ const handlers: Record<string, Handler> = {
     }
     if (subcommand === "arquivar") {
       const countryId = countryNumber(interaction, db);
+      const countryName = getCountryForView(db, guildId, interaction.user.id, countryId).name;
       archiveCountry(db, guildId, interaction.user.id, countryId);
-      await reply(interaction, `País ${countryId} arquivado.`);
+      await reply(interaction, `País **${countryName}** arquivado.`);
       return;
     }
     if (subcommand === "editar") {
@@ -198,7 +199,7 @@ const handlers: Record<string, Handler> = {
         name: interaction.options.getString("nome") ?? undefined,
         roleId: interaction.options.getRole("cargo")?.id,
       });
-      await reply(interaction, `País ${countryId} atualizado.`);
+      await reply(interaction, `Dados do país atualizados.`);
       return;
     }
     if (subcommand === "listar") {
@@ -242,16 +243,17 @@ const handlers: Record<string, Handler> = {
       return;
     }
     const countryId = countryNumber(interaction, db);
+    const countryName = getCountryForView(db, guildId, interaction.user.id, countryId).name;
     const target = interaction.options.getUser("jogador", true);
     if (!playerCanManageCountry(db, guildId, interaction.user.id, countryId)) {
       throw new DomainError("Você não tem permissão para gerenciar jogadores neste país.");
     }
     if (subcommand === "associar") {
       associatePlayer(db, guildId, countryId, interaction.user.id, target.id);
-      await reply(interaction, `<@${target.id}> foi associado ao país ${countryId}.`);
+      await reply(interaction, `<@${target.id}> foi associado ao país **${countryName}**.`);
     } else {
       removePlayer(db, guildId, countryId, interaction.user.id, target.id);
-      await reply(interaction, `<@${target.id}> foi removido do país ${countryId}.`);
+      await reply(interaction, `<@${target.id}> foi removido do país **${countryName}**.`);
     }
   },
 
@@ -290,7 +292,7 @@ const handlers: Record<string, Handler> = {
       action,
       allowed,
     );
-    await reply(interaction, `Permissão **${system}/${action}** ${allowed ? "concedida" : "revogada"} para <@${target.id}> no país ${countryId}.`);
+    await reply(interaction, `Permissão **${system}/${action}** ${allowed ? "concedida" : "revogada"} para <@${target.id}> no país selecionado.`);
   },
 
   indicador: async (interaction, db) => {
@@ -362,7 +364,7 @@ const handlers: Record<string, Handler> = {
         debtLimit: interaction.options.getNumber("limite_divida", true),
         annualIncome: interaction.options.getNumber("renda_anual", true),
       });
-      await reply(interaction, `Limites e rendimento anual do país ${countryId} atualizados.`);
+      await reply(interaction, `Limites e rendimento anual atualizados.`);
       return;
     }
     if (subcommand === "lancar") {
@@ -419,7 +421,6 @@ const handlers: Record<string, Handler> = {
       const country = resolveCommandCountry(db, guildId, interaction.user.id, interaction.options.getString("pais") ?? undefined);
       ensureDefaultCatalog(db, guildId, interaction.user.id);
       const rows = listCountryInventory(db, guildId, interaction.user.id, country.id);
-      const categories = ["Recursos naturais", "Indústria e bens", "Militar"];
       const selected = "Recursos naturais";
       const filtered = rows.filter((row) => row.category === selected);
       const embed = new EmbedBuilder()
