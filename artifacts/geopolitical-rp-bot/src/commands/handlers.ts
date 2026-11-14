@@ -14,7 +14,7 @@ import { processAnnualTurn, undoAnnualTurn, listAnnualRuns } from "../services/a
 import { adjustBalance, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
 import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
-import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock } from "../services/inventory.js";
+import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock, setItemProductionEnabled } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
 import { assignArmyEquipment, configureArmySize, configureConsumptionRule, configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
 import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, isMainNarrator, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission } from "../services/permissions.js";
@@ -481,6 +481,17 @@ const handlers: Record<string, Handler> = {
         interaction.options.getNumber("quantidade", true),
       );
       await reply(interaction, "Requisito de material configurado.");
+      return;
+    }
+    if (subcommand === "fabricacao") {
+      setItemProductionEnabled(
+        db,
+        guildId,
+        interaction.user.id,
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
+        interaction.options.getBoolean("habilitada", true),
+      );
+      await reply(interaction, "Disponibilidade de fabricação atualizada.");
       return;
     }
     if (subcommand === "estoque-global") {
