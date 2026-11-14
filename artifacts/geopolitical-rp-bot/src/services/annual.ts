@@ -220,7 +220,7 @@ export function processAnnualTurn(
 
       const operatingFlows = db.prepare(
         `SELECT
-           COALESCE(SUM((CASE WHEN i.category IN ('military', 'custom') THEN COALESCE(a.assigned_soldiers, 0) ELSE v.quantity END) * i.annual_maintenance), 0) AS maintenance,
+           COALESCE(SUM((CASE WHEN i.category = 'military' THEN COALESCE(a.assigned_soldiers, 0) WHEN i.category = 'custom' AND a.assigned_soldiers IS NOT NULL THEN a.assigned_soldiers ELSE v.quantity END) * i.annual_maintenance), 0) AS maintenance,
            COALESCE(SUM(v.quantity * i.annual_income_per_unit), 0) AS income,
            COALESCE(SUM(v.quantity * i.annual_expense_per_unit), 0) AS expense
          FROM country_inventory v JOIN items i ON i.id = v.item_id
