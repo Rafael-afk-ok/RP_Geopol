@@ -3,6 +3,7 @@ import test from "node:test";
 import { processAnnualTurn, undoAnnualTurn } from "../src/services/annual.js";
 import { createTradeContract, acceptTradeContract, setImportTariff, setTradeRestriction, processAnnualTradeContracts } from "../src/services/international-trade.js";
 import { modernizeMilitaryEquipment, getMilitaryStatus } from "../src/services/military.js";
+import { createPlayerOffer, buyPlayerOffer } from "../src/services/market.js";
 import { closeTestDatabase, createTestDatabase, insertCountry } from "./helpers.js";
 
 function addItem(db: ReturnType<typeof createTestDatabase>, name: string, category: "military" | "common" = "common", cost = 0, maintenance = 0): number {
@@ -72,9 +73,10 @@ test("bilateral trade contracts apply tariffs, transfer goods annually, and can 
     assert.equal(run.summary.tradeTariffs, 10);
     assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id=? AND item_id=?").get(seller, iron) as {quantity:number}).quantity, 10);
     assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id=? AND item_id=?").get(buyer, iron) as {quantity:number}).quantity, 10);
-    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(buyer) as {treasury:number}).treasury, 900);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(buyer) as {treasury:number}).treasury, 890);
     assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(seller) as {treasury:number}).treasury, 100);
-    assert.equal((db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM financial_ledger WHERE country_id=? AND kind='import_tariff_revenue'").get(buyer) as {total:number}).total, 10);
+    assert.equal((db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM financial_ledger WHERE country_id=? AND kind='import_tariff'").get(buyer) as {total:number}).total, -10);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM financial_ledger WHERE country_id=? AND kind='import_tariff_revenue'").get(buyer) as {count:number}).count, 0);
     assert.equal((db.prepare("SELECT status FROM trade_contracts WHERE id=?").get(contract) as {status:string}).status, "completed");
 
     undoAnnualTurn(db, "guild", "narrator");
@@ -82,6 +84,26 @@ test("bilateral trade contracts apply tariffs, transfer goods annually, and can 
     assert.equal((db.prepare("SELECT quantity FROM country_inventory WHERE country_id=? AND item_id=?").get(seller, iron) as {quantity:number}).quantity, 20);
     assert.equal((db.prepare("SELECT status FROM trade_contracts WHERE id=?").get(contract) as {status:string}).status, "active");
     assert.equal((db.prepare("SELECT COUNT(*) AS count FROM international_trade_history WHERE voided_at IS NOT NULL").get() as {count:number}).count, 1);
+  } finally {
+    closeTestDatabase(db);
+  }
+});
+
+test("player-market import tariff is an additional cost paid only by the importer", () => {
+  const db = createTestDatabase();
+  try {
+    const seller = insertCountry(db, { name: "OfferSeller", treasury: 0, debtLimit: 100 });
+    const buyer = insertCountry(db, { name: "OfferBuyer", treasury: 1000, debtLimit: 100 });
+    const iron = addItem(db, "Market iron");
+    db.prepare("INSERT INTO country_inventory(country_id,item_id,quantity) VALUES(?,?,10)").run(seller, iron);
+    const offer = createPlayerOffer(db, "guild", "narrator", seller, iron, 10, 10);
+    setImportTariff(db, "guild", "narrator", buyer, 10);
+    const trade = buyPlayerOffer(db, "guild", "narrator", buyer, offer, 10);
+    assert.equal(trade.total, 110);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(buyer) as {treasury:number}).treasury, 890);
+    assert.equal((db.prepare("SELECT treasury FROM countries WHERE id=?").get(seller) as {treasury:number}).treasury, 100);
+    assert.equal((db.prepare("SELECT COALESCE(SUM(amount),0) AS total FROM financial_ledger WHERE country_id=? AND kind='import_tariff'").get(buyer) as {total:number}).total, -10);
+    assert.equal((db.prepare("SELECT COUNT(*) AS count FROM financial_ledger WHERE country_id=? AND kind='import_tariff_revenue'").get(buyer) as {count:number}).count, 0);
   } finally {
     closeTestDatabase(db);
   }
