@@ -26,12 +26,13 @@ export function startProduction(
   requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "production", "start");
   return inTransaction(db, () => {
     const item = db.prepare(
-      `SELECT id, name, guild_id, production_cost, production_years, max_parallel_orders
+      `SELECT id, name, guild_id, production_cost, production_years, max_parallel_orders, production_enabled
        FROM items WHERE id = ?`,
     ).get(itemId) as
-      | { id: number; name: string; guild_id: string; production_cost: number; production_years: number; max_parallel_orders: number }
+      | { id: number; name: string; guild_id: string; production_cost: number; production_years: number; max_parallel_orders: number; production_enabled: number }
       | undefined;
     assertDomain(item && item.guild_id === guildId, "Produto não encontrado.");
+    assertDomain(item.production_enabled === 1, "A fabricação deste item foi desativada pelo Narrador.");
     const activeCount = db.prepare(
       "SELECT COUNT(*) AS count FROM production_orders WHERE country_id = ? AND item_id = ? AND status = 'in_progress'",
     ).get(countryId, itemId) as { count: number };
