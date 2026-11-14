@@ -181,7 +181,8 @@ export const commandBuilders = [
         .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addStringOption((option) => option.setName("item").setDescription("Nome do item").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("produz").setDescription("Quantidade anual produzida").setRequired(true).setMinValue(0))
-        .addNumberOption((option) => option.setName("consome").setDescription("Quantidade anual consumida (exceto alimento)").setRequired(true).setMinValue(0)),
+        .addNumberOption((option) => option.setName("consome").setDescription("Quantidade anual consumida (exceto alimento)").setRequired(true).setMinValue(0))
+        .addNumberOption((option) => option.setName("exportar_percentual").setDescription("Percentual da produção anual destinado à exportação").setRequired(false).setMinValue(0).setMaxValue(100),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("requisito").setDescription("Define material necessário para produzir um item")
@@ -196,7 +197,9 @@ export const commandBuilders = [
         .addNumberOption((option) => option.setName("preco").setDescription("Preço atual por unidade").setRequired(true).setMinValue(0.01))
         .addNumberOption((option) => option.setName("preco_base").setDescription("Preço-base de referência do item").setRequired(true).setMinValue(0.01))
         .addNumberOption((option) => option.setName("preco_minimo").setDescription("Preço mínimo").setRequired(true).setMinValue(0.01))
-        .addNumberOption((option) => option.setName("preco_maximo").setDescription("Preço máximo").setRequired(true).setMinValue(0.01)),
+        .addNumberOption((option) => option.setName("preco_maximo").setDescription("Preço máximo").setRequired(true).setMinValue(0.01))
+        .addNumberOption((option) => option.setName("estoque_maximo").setDescription("Capacidade máxima do estoque global").setRequired(true).setMinValue(0))
+        .addNumberOption((option) => option.setName("reposicao_anual").setDescription("Quantidade reposta a cada avanço de ano").setRequired(true).setMinValue(0)),
     ),
 
   new SlashCommandBuilder()
