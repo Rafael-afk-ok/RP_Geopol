@@ -1,0 +1,37 @@
+name: Geopolitical RP bot CI
+
+on:
+  pull_request:
+    paths:
+      - "artifacts/geopolitical-rp-bot/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+  push:
+    branches: ["main"]
+    paths:
+      - "artifacts/geopolitical-rp-bot/**"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "package.json"
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Typecheck bot
+        run: pnpm --filter @workspace/geopolitical-rp-bot typecheck
+      - name: Run bot tests
+        run: pnpm --filter @workspace/geopolitical-rp-bot test
