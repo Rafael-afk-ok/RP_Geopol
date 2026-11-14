@@ -68,12 +68,12 @@ client.on(Events.InteractionCreate, async (interaction) => {
          LEFT JOIN country_inventory v ON v.item_id = i.id AND v.country_id = ?
          LEFT JOIN country_production p ON p.item_id = i.id AND p.country_id = ?
          LEFT JOIN custom_item_categories cc ON cc.id = i.custom_category_id
-         WHERE i.guild_id = ? AND (
-           (i.category = 'military' AND ? = 'Militar') OR
-           (i.category <> 'military' AND COALESCE(cc.name, 'Indústria e bens') = ?)
-         )
+         WHERE i.guild_id = ? AND
+           CASE WHEN i.category = 'military' THEN 'Militar'
+                WHEN cc.name = 'Recursos naturais' THEN 'Recursos naturais'
+                ELSE 'Indústria e bens' END = ?
          ORDER BY i.name COLLATE NOCASE`,
-      ).all(countryId, countryId, interaction.guildId, categoryName, categoryName) as Array<{ name: string; quantity: number; annual_production: number; annual_consumption: number; unit: string | null }>;
+      ).all(countryId, countryId, interaction.guildId, categoryName) as Array<{ name: string; quantity: number; annual_production: number; annual_consumption: number; unit: string | null }>;
       const description = rows.length ? rows.map((row) => {
         const net = row.annual_production - row.annual_consumption;
         return `**${row.name}**\nEstoque: ${row.quantity.toLocaleString("pt-BR")} ${row.unit ?? ""} · Produção anual: ${row.annual_production.toLocaleString("pt-BR")} · Consumo anual: ${row.annual_consumption.toLocaleString("pt-BR")} · Variação: ${net >= 0 ? "+" : ""}${net.toLocaleString("pt-BR")}`;
