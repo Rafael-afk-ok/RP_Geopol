@@ -127,7 +127,7 @@ export function processAnnualTurn(
 
     const before = snapshotGuild(db, guildId);
     const runId = randomUUID();
-    const summary = { countries: 0, revenue: 0, expenses: 0, completedOrders: 0, expiredOffers: 0, foodDeficit: 0, populationShortage: 0, armyShortage: 0, transfersApplied: 0, transfersFailed: 0 };
+    const summary = { countries: 0, revenue: 0, taxRevenue: 0, exportRevenue: 0, expenses: 0, completedOrders: 0, expiredOffers: 0, foodDeficit: 0, populationShortage: 0, armyShortage: 0, transfersApplied: 0, transfersFailed: 0 };
     const countries = db.prepare(
       `SELECT id, name, treasury, max_money, debt_limit, annual_income, population,
         annual_population_growth, food_per_person, revolt_counter, inflation_issued, army_size
@@ -160,6 +160,22 @@ export function processAnnualTurn(
         adjustBalance(db, country.id, guildId, actorId, income, "annual_income", `Rendimento anual do ano ${year}`, null, runId, year);
         summary.revenue += income;
       }
+
+      // Monthly population tax: the effective per-capita factor declines at large population sizes.
+      const population = country.population;
+      const taxFactor = population <= 100_000_000
+        ? 1
+        : population <= 200_000_000
+          ? 0.8
+          : Math.max(0.1, 0.8 - Math.floor((population - 200_000_000) / 100_000) * 0.01);
+      const monthlyTax = population * taxFactor;
+      for (let month = 1; month <= 12; month += 1) {
+        if (monthlyTax > 0) {
+          adjustBalance(db, country.id, guildId, actorId, monthlyTax, "population_tax", `Impostos populacionais · mês ${month}/12 · ano ${year}`, null, runId, year);
+        }
+      }
+      summary.taxRevenue += monthlyTax * 12;
+      summary.revenue += monthlyTax * 12;
 
       const entries = db.prepare(
         `SELECT id, direction, amount, description, recurrence FROM economy_entries
@@ -227,7 +243,7 @@ export function processAnnualTurn(
 
     // Annual production and normal consumption. Food is consumed after population needs are calculated.
     const productionRows = db.prepare(
-      `SELECT cp.country_id, cp.item_id, cp.annual_production, cp.annual_consumption, i.is_food, i.category
+      `SELECT cp.country_id, cp.item_id, cp.annual_production, cp.annual_consumption, cp.annual_export_percent, i.is_food, i.category
        FROM country_production cp JOIN items i ON i.id = cp.item_id
        JOIN countries c ON c.id = cp.country_id
        WHERE c.guild_id = ? AND c.status = 'active' ORDER BY cp.country_id, cp.item_id`,
@@ -236,6 +252,7 @@ export function processAnnualTurn(
       item_id: number;
       annual_production: number;
       annual_consumption: number;
+      annual_export_percent: number;
       is_food: number;
       category: string;
     }>;
@@ -339,10 +356,39 @@ export function processAnnualTurn(
       const consumeRule = (itemId: number, need: number): number => {
         const stock = db.prepare("SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?").get(country.id, itemId) as { quantity: number } | undefined;
         const assigned = db.prepare("SELECT assigned_soldiers FROM army_equipment_assignments WHERE country_id = ? AND item_id = ?").get(country.id, itemId) as { assigned_soldiers: number } | undefined;
-        const available = Math.max(0, (stock?.quantity ?? 0) - (assigned?.assigned_soldiers ?? 0));
-        const consumed = Math.min(available, need);
+        let available = Math.max(0, (stock?.quantity ?? 0) - (assigned?.assigned_soldiers ?? 0));
+        let consumed = Math.min(available, need);
+        let shortage = Math.max(0, need - consumed);
+        const food = db.prepare("SELECT is_food FROM items WHERE id = ? AND guild_id = ?").get(itemId, guildId) as { is_food: number } | undefined;
+        if (shortage > 0 && food?.is_food === 1) {
+          const world = db.prepare(
+            "SELECT quantity, current_price FROM global_stock WHERE guild_id = ? AND item_id = ?",
+          ).get(guildId, itemId) as { quantity: number; current_price: number } | undefined;
+          const purchaseQuantity = Math.min(shortage, world?.quantity ?? 0);
+          if (purchaseQuantity > 0 && world) {
+            const cost = purchaseQuantity * world.current_price;
+            const balance = db.prepare("SELECT treasury, inflation_issued FROM countries WHERE id = ?").get(country.id) as { treasury: number; inflation_issued: number };
+            const cash = Math.max(0, balance.treasury);
+            const inflationNeeded = Math.max(0, cost - cash);
+            if (inflationNeeded > 0) {
+              adjustBalance(db, country.id, guildId, actorId, inflationNeeded, "automatic_food_inflation", `Financiamento inflacionário de alimentos no ano ${year}`, null, runId, year);
+              db.prepare("UPDATE countries SET inflation_issued = inflation_issued + ? WHERE id = ?").run(inflationNeeded, country.id);
+            }
+            adjustBalance(db, country.id, guildId, actorId, -cost, "automatic_food_purchase", `Compra automática de alimentos no ano ${year}`, null, runId, year);
+            db.prepare("UPDATE global_stock SET quantity = quantity - ? WHERE guild_id = ? AND item_id = ?").run(purchaseQuantity, guildId, itemId);
+            db.prepare(
+              `INSERT INTO global_market_trades
+               (id, guild_id, item_id, country_id, direction, quantity, unit_price, total, year, actor_id)
+               VALUES (?, ?, ?, ?, 'buy', ?, ?, ?, ?, ?)`,
+            ).run(randomUUID(), guildId, itemId, country.id, purchaseQuantity, world.current_price, cost, year, actorId);
+            inventoryDelta(country.id, itemId, purchaseQuantity);
+            available += purchaseQuantity;
+            consumed = Math.min(available, need);
+            shortage = Math.max(0, need - consumed);
+          }
+        }
         if (consumed > 0) inventoryDelta(country.id, itemId, -consumed);
-        return Math.max(0, need - consumed);
+        return shortage;
       };
       if (populationRules.length) {
         for (const rule of populationRules) {
@@ -378,6 +424,46 @@ export function processAnnualTurn(
         : Math.max(0, country.revolt_counter - settings.revolt_normalization_per_year);
       db.prepare("UPDATE countries SET revolt_counter = ? WHERE id = ?").run(nextRevolt, country.id);
     }
+
+    // Export only the configured share of this year's production, never reserved military equipment.
+    for (const row of productionRows) {
+      const configured = row.annual_production * row.annual_export_percent / 100;
+      if (configured <= 0) continue;
+      const stock = db.prepare(
+        `SELECT g.quantity, g.max_quantity, g.current_price
+         FROM global_stock g WHERE g.guild_id = ? AND g.item_id = ?`,
+      ).get(guildId, row.item_id) as { quantity: number; max_quantity: number; current_price: number } | undefined;
+      if (!stock) continue;
+      const inventory = db.prepare(
+        "SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?",
+      ).get(row.country_id, row.item_id) as { quantity: number } | undefined;
+      const assigned = db.prepare(
+        "SELECT assigned_soldiers FROM army_equipment_assignments WHERE country_id = ? AND item_id = ?",
+      ).get(row.country_id, row.item_id) as { assigned_soldiers: number } | undefined;
+      const available = Math.max(0, (inventory?.quantity ?? 0) - (assigned?.assigned_soldiers ?? 0));
+      const marketRoom = Math.max(0, stock.max_quantity - stock.quantity);
+      const exported = Math.min(configured, available, marketRoom);
+      if (exported <= 0) continue;
+      const total = exported * stock.current_price;
+      inventoryDelta(row.country_id, row.item_id, -exported);
+      db.prepare("UPDATE global_stock SET quantity = quantity + ? WHERE guild_id = ? AND item_id = ?")
+        .run(exported, guildId, row.item_id);
+      adjustBalance(db, row.country_id, guildId, actorId, total, "export_income", `Exportação anual do item #${row.item_id}`, null, runId, year);
+      db.prepare(
+        `INSERT INTO global_market_trades
+         (id, guild_id, item_id, country_id, direction, quantity, unit_price, total, year, actor_id)
+         VALUES (?, ?, ?, ?, 'sell', ?, ?, ?, ?, ?)`,
+      ).run(randomUUID(), guildId, row.item_id, row.country_id, exported, stock.current_price, total, year, actorId);
+      summary.exportRevenue += total;
+      summary.revenue += total;
+    }
+
+    // Replenish the world market at each annual close, without exceeding configured capacity.
+    db.prepare(
+      `UPDATE global_stock
+       SET quantity = MIN(max_quantity, quantity + annual_replenishment)
+       WHERE guild_id = ?`,
+    ).run(guildId);
 
     // Return unsold escrow when offers reach their configured expiry year.
     const expired = db.prepare(

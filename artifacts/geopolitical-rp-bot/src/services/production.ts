@@ -26,12 +26,13 @@ export function startProduction(
   requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "production", "start");
   return inTransaction(db, () => {
     const item = db.prepare(
-      `SELECT id, name, guild_id, production_cost, production_years, max_parallel_orders
+      `SELECT id, name, guild_id, production_cost, production_years, max_parallel_orders, production_enabled
        FROM items WHERE id = ?`,
     ).get(itemId) as
-      | { id: number; name: string; guild_id: string; production_cost: number; production_years: number; max_parallel_orders: number }
+      | { id: number; name: string; guild_id: string; production_cost: number; production_years: number; max_parallel_orders: number; production_enabled: number }
       | undefined;
     assertDomain(item && item.guild_id === guildId, "Produto não encontrado.");
+    assertDomain(item.production_enabled === 1, "A fabricação deste item foi desativada pelo Narrador.");
     const activeCount = db.prepare(
       "SELECT COUNT(*) AS count FROM production_orders WHERE country_id = ? AND item_id = ? AND status = 'in_progress'",
     ).get(countryId, itemId) as { count: number };
@@ -45,7 +46,28 @@ export function startProduction(
       const stock = db.prepare(
         "SELECT quantity FROM country_inventory WHERE country_id = ? AND item_id = ?",
       ).get(countryId, requirement.material_item_id) as { quantity: number } | undefined;
-      assertDomain((stock?.quantity ?? 0) + 1e-9 >= required, `Estoque insuficiente do material #${requirement.material_item_id}.`);
+      const missing = Math.max(0, required - (stock?.quantity ?? 0));
+      if (missing > 1e-9) {
+        const world = db.prepare(
+          "SELECT quantity, current_price FROM global_stock WHERE guild_id = ? AND item_id = ?",
+        ).get(guildId, requirement.material_item_id) as { quantity: number; current_price: number } | undefined;
+        assertDomain(world && world.quantity + 1e-9 >= missing,
+          `Produção suspensa: faltam ${missing} unidades do material #${requirement.material_item_id} e o mercado mundial não possui estoque suficiente.`);
+        const purchaseCost = world.current_price * missing;
+        const balance = db.prepare("SELECT treasury FROM countries WHERE id = ?").get(countryId) as { treasury: number };
+        assertDomain(balance.treasury + 1e-9 >= purchaseCost,
+          `Produção suspensa: faltam ${missing} unidades do material #${requirement.material_item_id}, mas o país não possui dinheiro suficiente para comprá-las.`);
+        adjustBalance(db, countryId, guildId, actorId, -purchaseCost, "automatic_material_purchase",
+          `Compra automática de material para fabricar ${item.name}`);
+        changeInventory(db, countryId, requirement.material_item_id, missing);
+        db.prepare("UPDATE global_stock SET quantity = quantity - ? WHERE guild_id = ? AND item_id = ?")
+          .run(missing, guildId, requirement.material_item_id);
+        db.prepare(
+          `INSERT INTO global_market_trades
+           (id, guild_id, item_id, country_id, direction, quantity, unit_price, total, year, actor_id)
+           VALUES (?, ?, ?, ?, 'buy', ?, ?, ?, (SELECT current_year FROM guild_settings WHERE guild_id = ?), ?)`,
+        ).run(randomUUID(), guildId, requirement.material_item_id, countryId, missing, world.current_price, purchaseCost, guildId, actorId);
+      }
     }
 
     const productionCost = item.production_cost * quantity;

@@ -14,7 +14,7 @@ import { processAnnualTurn, undoAnnualTurn, listAnnualRuns } from "../services/a
 import { adjustBalance, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
 import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
-import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock } from "../services/inventory.js";
+import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock, setItemProductionEnabled } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
 import { assignArmyEquipment, configureArmySize, configureConsumptionRule, configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
 import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, isMainNarrator, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission } from "../services/permissions.js";
@@ -466,8 +466,9 @@ const handlers: Record<string, Handler> = {
         itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("produz", true),
         interaction.options.getNumber("consome", true),
+        interaction.options.getNumber("exportar_percentual") ?? 0,
       );
-      await reply(interaction, "Produção e consumo anual atualizados.");
+      await reply(interaction, "Produção, consumo e percentual de exportação anual atualizados.");
       return;
     }
     if (subcommand === "requisito") {
@@ -482,6 +483,17 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, "Requisito de material configurado.");
       return;
     }
+    if (subcommand === "fabricacao") {
+      setItemProductionEnabled(
+        db,
+        guildId,
+        interaction.user.id,
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
+        interaction.options.getBoolean("habilitada", true),
+      );
+      await reply(interaction, "Disponibilidade de fabricação atualizada.");
+      return;
+    }
     if (subcommand === "estoque-global") {
       setGlobalStock(
         db,
@@ -493,8 +505,10 @@ const handlers: Record<string, Handler> = {
         interaction.options.getNumber("preco_base", true),
         interaction.options.getNumber("preco_minimo", true),
         interaction.options.getNumber("preco_maximo", true),
+        interaction.options.getNumber("estoque_maximo", true),
+        interaction.options.getNumber("reposicao_anual", true),
       );
-      await reply(interaction, "Estoque e preços globais atualizados.");
+      await reply(interaction, "Estoque, capacidade, reposição e preços globais atualizados.");
       return;
     }
     const inventoryCountryId = countryNumber(interaction, db);
@@ -665,9 +679,9 @@ const handlers: Record<string, Handler> = {
     }
     const offers = listOffers(db, guildId);
     const stock = db.prepare(
-      `SELECT i.id, i.name, g.quantity, g.current_price, g.base_price, g.min_price, g.max_price
+      `SELECT i.id, i.name, g.quantity, g.max_quantity, g.annual_replenishment, g.current_price, g.base_price, g.min_price, g.max_price
        FROM global_stock g JOIN items i ON i.id = g.item_id WHERE g.guild_id = ? ORDER BY i.name`,
-    ).all(guildId) as Array<{ id: number; name: string; quantity: number; current_price: number; base_price: number; min_price: number; max_price: number }>;
+    ).all(guildId) as Array<{ id: number; name: string; quantity: number; max_quantity: number; annual_replenishment: number; current_price: number; base_price: number; min_price: number; max_price: number }>;
     const embed = new EmbedBuilder()
       .setTitle("Mercado mundial · painel público")
       .setDescription("Ofertas entre países e preços do mercado mundial. As compras e vendas globais influenciam os preços no fechamento de cada ano.")
@@ -676,7 +690,7 @@ const handlers: Record<string, Handler> = {
           ? offers.slice(0, 10).map((offer) => `\`${offer.id.slice(0, 8)}\` · ${offer.item} × ${formatNumber(offer.remaining_quantity, 2)} · ${formatNumber(offer.unit_price, 2)} ${offer.currency_symbol} · expira no ano ${offer.expires_year}`).join("\n").slice(0, 1000)
           : "Nenhuma oferta aberta." },
         { name: "Mercado global", value: stock.length
-          ? stock.slice(0, 10).map((item) => `**${item.name}** · estoque ${formatNumber(item.quantity, 2)} · atual ${formatNumber(item.current_price, 2)} · base ${formatNumber(item.base_price, 2)} [${formatNumber(item.min_price, 2)}–${formatNumber(item.max_price, 2)}]`).join("\n").slice(0, 1000)
+          ? stock.slice(0, 10).map((item) => `**${item.name}** · estoque ${formatNumber(item.quantity, 2)}/${formatNumber(item.max_quantity, 2)} · reposição anual ${formatNumber(item.annual_replenishment, 2)} · atual ${formatNumber(item.current_price, 2)} · base ${formatNumber(item.base_price, 2)} [${formatNumber(item.min_price, 2)}–${formatNumber(item.max_price, 2)}]`).join("\n").slice(0, 1000)
           : "Nenhum produto global configurado." },
       )
       .setColor(0x315e56);
@@ -847,7 +861,7 @@ const handlers: Record<string, Handler> = {
         .setColor(0x315e56)
         .setFooter({ text: "Os preços são reajustados no fechamento anual." });
       await interaction.editReply({
-        content: `Ano **${result.year}** processado atomicamente.\nPaíses: ${result.summary.countries} · Receitas: ${formatNumber(result.summary.revenue, 2)} · Despesas: ${formatNumber(result.summary.expenses, 2)} · Produções concluídas: ${result.summary.completedOrders}\nDéficit populacional: ${formatNumber(result.summary.populationShortage, 2)} · Déficit militar: ${formatNumber(result.summary.armyShortage, 2)}\nAcordos executados: ${result.summary.transfersApplied} · Parcelas suspensas por falta de saldo/estoque: ${result.summary.transfersFailed} · Ofertas expiradas: ${result.summary.expiredOffers}\nRegistro: \`${result.runId}\``,
+        content: `Ano **${result.year}** processado atomicamente.\nPaíses: ${result.summary.countries} · Receitas: ${formatNumber(result.summary.revenue, 2)} (impostos: ${formatNumber(result.summary.taxRevenue, 2)} · exportações: ${formatNumber(result.summary.exportRevenue, 2)}) · Despesas: ${formatNumber(result.summary.expenses, 2)} · Produções concluídas: ${result.summary.completedOrders}\nDéficit populacional: ${formatNumber(result.summary.populationShortage, 2)} · Déficit militar: ${formatNumber(result.summary.armyShortage, 2)}\nAcordos executados: ${result.summary.transfersApplied} · Parcelas suspensas por falta de saldo/estoque: ${result.summary.transfersFailed} · Ofertas expiradas: ${result.summary.expiredOffers}\nRegistro: \`${result.runId}\``,
         embeds: [priceEmbed],
         allowedMentions: { parse: [] },
       });
@@ -1053,7 +1067,12 @@ const handlers: Record<string, Handler> = {
       .addFields(
         { name: "1. Configuração inicial", value: "`/configurar principal` → `/configurar moeda` → `/pais criar` → `/jogador associar`. O Narrador Supremo pode nomear narradores com `/narrador adicionar`." },
         { name: "2. Rotina do jogador", value: "`/pais geral` → `/saldo` → `/inventario painel` → produzir, gastar e negociar. Consulte o estado do país antes de cada fechamento anual." },
-        { name: "3. Rotina do narrador", value: "Configure população, efetivo, consumo, produção e acordos; depois execute `/ano avancar`. Use `/ano desfazer` somente se não houve alterações posteriores." },
+        { name: "3. Impostos populacionais", value: "A arrecadação é mensal e processada em 12 lançamentos no fechamento anual. Fator por habitante: 1,0 até 100 milhões; 0,8 de 100 a 200 milhões; acima de 200 milhões cai 0,01 por faixa adicional de 100 mil habitantes, até o piso de 0,1." },
+        { name: "4. Fabricação", value: "`/inventario criar-item` define custo monetário e duração. `/inventario requisito` cadastra materiais por unidade. `/inventario fabricacao` permite ao Narrador bloquear itens considerados injustos. `/produzir iniciar` desconta custo e materiais; `/produzir fila` acompanha prazos; `/produzir cancelar` devolve a fração configurada dos materiais, nunca o custo monetário." },
+        { name: "5. Produção e exportações", value: "`/inventario producao-anual` configura produção, consumo e percentual exportado. No fechamento anual, o bot vende até essa porcentagem da produção disponível ao mercado global; a receita entra no rendimento como exportação. O que não for vendido fica no estoque." },
+        { name: "6. Mercado mundial", value: "`/inventario estoque-global` configura estoque inicial, preços, capacidade máxima e reposição anual. O estoque é limitado pela capacidade e recebe a reposição definida pelo Narrador em cada avanço de ano. Compras e vendas afetam os preços anuais." },
+        { name: "7. Abastecimento", value: "Se faltar alimento, o bot compra o disponível no mercado global; usa o tesouro e financia a diferença por inflação. Se o mercado não tiver alimento suficiente, o déficit aumenta a revolta. Na fabricação, materiais ausentes são comprados automaticamente se houver estoque global e dinheiro; sem qualquer um dos dois, a ordem não é iniciada e o comando informa o motivo. Não há inflação automática para materiais industriais." },
+        { name: "8. Fechamento anual", value: "O Narrador executa `/ano avancar`. O bot calcula rendimentos, impostos, produção, consumo, exportações, reposição do mercado, abastecimento, revolta e preços. `/ano desfazer` reverte o último fechamento se nenhum dado posterior tiver sido alterado." },
       )
       .setFooter({ text: "Os comandos administrativos são privados; manual, rankings e painel de negociações são públicos." })
       .setColor(0x315e56);
