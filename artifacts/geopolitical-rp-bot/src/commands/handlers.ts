@@ -87,6 +87,13 @@ function getCountryForView(db: Database.Database, guildId: string, userId: strin
   return getAccessibleCountry(db, guildId, userId, countryId);
 }
 
+function itemIdByName(db: Database.Database, guildId: string, name: string): number {
+  const item = db.prepare("SELECT id FROM items WHERE guild_id = ? AND lower(name) = lower(?)")
+    .get(guildId, name.trim()) as { id: number } | undefined;
+  assertDomain(item, "Item não encontrado neste servidor.");
+  return item.id;
+}
+
 function countryIdByName(db: Database.Database, guildId: string, name: string): number {
   const country = db.prepare("SELECT id FROM countries WHERE guild_id = ? AND status = 'active' AND lower(name) = lower(?)")
     .get(guildId, name.trim()) as { id: number } | undefined;
@@ -475,11 +482,11 @@ const handlers: Record<string, Handler> = {
         isFood: interaction.options.getBoolean("alimento", true),
         globalTradeable: interaction.options.getBoolean("mercado_global", true),
       });
-      await reply(interaction, `Item criado. ID: **${itemId}**.`);
+      await reply(interaction, `Item **${interaction.options.getString("nome", true)}** criado.`);
       return;
     }
     if (subcommand === "ajustar") {
-      adjustInventory(db, guildId, interaction.user.id, countryNumber(interaction, db), interaction.options.getInteger("item_id", true),
+      adjustInventory(db, guildId, interaction.user.id, countryNumber(interaction, db), itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("variacao", true), interaction.options.getString("motivo", true), interaction.id);
       await reply(interaction, "Estoque atualizado.");
       return;
@@ -490,7 +497,7 @@ const handlers: Record<string, Handler> = {
         guildId,
         interaction.user.id,
         countryNumber(interaction, db),
-        interaction.options.getInteger("item_id", true),
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("produz", true),
         interaction.options.getNumber("consome", true),
       );
@@ -502,8 +509,8 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        interaction.options.getInteger("produto_id", true),
-        interaction.options.getInteger("material_id", true),
+        itemIdByName(db, guildId, interaction.options.getString("produto", true)),
+        itemIdByName(db, guildId, interaction.options.getString("material", true)),
         interaction.options.getNumber("quantidade", true),
       );
       await reply(interaction, "Requisito de material configurado.");
@@ -514,7 +521,7 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        interaction.options.getInteger("item_id", true),
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("estoque", true),
         interaction.options.getNumber("preco", true),
         interaction.options.getNumber("preco_minimo", true),
@@ -541,7 +548,7 @@ const handlers: Record<string, Handler> = {
         id(interaction),
         interaction.user.id,
         countryNumber(interaction, db),
-        interaction.options.getInteger("item_id", true),
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("quantidade", true),
         interaction.id,
       );
@@ -637,7 +644,7 @@ const handlers: Record<string, Handler> = {
         guildId,
         interaction.user.id,
         countryNumber(interaction, db),
-        interaction.options.getInteger("item_id", true),
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
         interaction.options.getNumber("quantidade", true),
         interaction.options.getNumber("preco_unitario", true),
         interaction.options.getString("descricao") ?? "",
@@ -670,7 +677,7 @@ const handlers: Record<string, Handler> = {
         guildId,
         interaction.user.id,
         countryNumber(interaction, db),
-        interaction.options.getInteger("item_id", true),
+        itemIdByName(db, guildId, interaction.options.getString("item", true)),
         subcommand === "global-comprar" ? "buy" : "sell",
         interaction.options.getNumber("quantidade", true),
         interaction.id,
