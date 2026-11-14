@@ -27,8 +27,15 @@ function id(interaction: ChatInputCommandInteraction): string {
   return interaction.guildId;
 }
 
-function countryNumber(interaction: ChatInputCommandInteraction, name = "pais_id"): number {
-  return interaction.options.getInteger(name, true);
+function countryNumber(interaction: ChatInputCommandInteraction, db: Database.Database, name = "pais"): number {
+  const guildId = id(interaction);
+  const nameValue = interaction.options.getString(name, true).trim();
+  const narrator = hasNarratorPermission(db, guildId, interaction.user.id, "countries", "read");
+  const country = narrator
+    ? db.prepare("SELECT id FROM countries WHERE guild_id = ? AND status = 'active' AND lower(name) = lower(?)").get(guildId, nameValue) as { id: number } | undefined
+    : db.prepare("SELECT c.id FROM countries c JOIN country_memberships m ON m.country_id = c.id WHERE c.guild_id = ? AND c.status = 'active' AND lower(c.name) = lower(?) AND m.user_id = ?").get(guildId, nameValue, interaction.user.id) as { id: number } | undefined;
+  assertDomain(country, "País não encontrado ou você não está associado a ele.");
+  return country.id;
 }
 
 function jsonValue(value: string | null): unknown {
@@ -169,17 +176,17 @@ const handlers: Record<string, Handler> = {
         interaction.options.getString("nome", true),
         role.id,
       );
-      await reply(interaction, `País criado. ID interno: **${countryId}**. Jogadores com o cargo serão associados automaticamente ao usar o bot.`);
+      await reply(interaction, `País **${interaction.options.getString("nome", true)}** criado. Jogadores com o cargo serão associados automaticamente ao usar o bot.`);
       return;
     }
     if (subcommand === "arquivar") {
-      const countryId = countryNumber(interaction);
+      const countryId = countryNumber(interaction, db);
       archiveCountry(db, guildId, interaction.user.id, countryId);
       await reply(interaction, `País ${countryId} arquivado.`);
       return;
     }
     if (subcommand === "editar") {
-      const countryId = countryNumber(interaction);
+      const countryId = countryNumber(interaction, db);
       updateCountry(db, guildId, interaction.user.id, countryId, {
         name: interaction.options.getString("nome") ?? undefined,
         roleId: interaction.options.getRole("cargo")?.id,
@@ -197,14 +204,14 @@ const handlers: Record<string, Handler> = {
       });
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     const country = getCountryForView(db, guildId, interaction.user.id, countryId);
     const settings = db.prepare("SELECT currency_symbol, current_year FROM guild_settings WHERE guild_id = ?").get(guildId) as
       | { currency_symbol: string; current_year: number }
       | undefined;
     const embed = new EmbedBuilder()
       .setTitle(country.name)
-      .setDescription(`ID interno: ${country.id} · Ano atual: ${settings?.current_year ?? 0}`)
+      .setDescription(`Ano atual: ${settings?.current_year ?? 0}`)
       .addFields(
         { name: "Tesouro", value: `${formatNumber(country.treasury, 2)} ${settings?.currency_symbol ?? ""}`, inline: true },
         { name: "Renda anual", value: `${formatNumber(country.annual_income, 2)} ${settings?.currency_symbol ?? ""}`, inline: true },
@@ -227,7 +234,7 @@ const handlers: Record<string, Handler> = {
       });
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     const target = interaction.options.getUser("jogador", true);
     if (!playerCanManageCountry(db, guildId, interaction.user.id, countryId)) {
       throw new DomainError("Você não tem permissão para gerenciar jogadores neste país.");
@@ -257,7 +264,7 @@ const handlers: Record<string, Handler> = {
       }
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     assertDomain(
       playerCanManageCountry(db, guildId, interaction.user.id, countryId),
       "Você não pode alterar permissões de jogadores neste país.",
@@ -320,17 +327,17 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        countryNumber(interaction),
+        countryNumber(interaction, db),
         indicatorId,
         jsonValue(interaction.options.getString("valor", true)),
       );
       await reply(interaction, "Indicador atualizado.");
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     const rows = listIndicators(db, guildId, interaction.user.id, countryId);
     const embed = new EmbedBuilder()
-      .setTitle(`Indicadores do país ${countryId}`)
+      .setTitle(`Indicadores nacionais · ${getCountryForView(db, guildId, interaction.user.id, countryId).name}`)
       .setDescription(rows.length
         ? rows.map((row) => `**${row.category} · ${row.name}** (${row.data_type})\n${String(row.value ?? "—")}${row.description ? `\n${row.description}` : ""}`).join("\n\n").slice(0, 4000)
         : "Nenhum indicador foi configurado.")
@@ -341,7 +348,7 @@ const handlers: Record<string, Handler> = {
   economia: async (interaction, db) => {
     const guildId = id(interaction);
     const subcommand = interaction.options.getSubcommand();
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     if (subcommand === "configurar") {
       configureCountryEconomy(db, guildId, interaction.user.id, countryId, {
         maxMoney: interaction.options.getNumber("limite_saldo"),
@@ -464,7 +471,7 @@ const handlers: Record<string, Handler> = {
       return;
     }
     if (subcommand === "ajustar") {
-      adjustInventory(db, guildId, interaction.user.id, countryNumber(interaction), interaction.options.getInteger("item_id", true),
+      adjustInventory(db, guildId, interaction.user.id, countryNumber(interaction, db), interaction.options.getInteger("item_id", true),
         interaction.options.getNumber("variacao", true), interaction.options.getString("motivo", true), interaction.id);
       await reply(interaction, "Estoque atualizado.");
       return;
@@ -474,7 +481,7 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        countryNumber(interaction),
+        countryNumber(interaction, db),
         interaction.options.getInteger("item_id", true),
         interaction.options.getNumber("produz", true),
         interaction.options.getNumber("consome", true),
@@ -508,9 +515,9 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, "Estoque e preços globais atualizados.");
       return;
     }
-    const rows = listCountryInventory(db, guildId, interaction.user.id, countryNumber(interaction));
+    const rows = listCountryInventory(db, guildId, interaction.user.id, countryNumber(interaction, db));
     const embed = new EmbedBuilder()
-      .setTitle(`Inventário do país ${countryNumber(interaction)}`)
+      .setTitle(`Inventário do país ${countryNumber(interaction, db)}`)
       .setDescription(rows.length
         ? rows.map((row) => `**${row.name}** · ${row.category}: ${formatNumber(row.quantity, 2)}${row.unit ? ` ${row.unit}` : ""} (ID ${row.id})`).join("\n").slice(0, 4000)
         : "Nenhum item configurado.")
@@ -525,7 +532,7 @@ const handlers: Record<string, Handler> = {
         db,
         id(interaction),
         interaction.user.id,
-        countryNumber(interaction),
+        countryNumber(interaction, db),
         interaction.options.getInteger("item_id", true),
         interaction.options.getNumber("quantidade", true),
         interaction.id,
@@ -540,10 +547,10 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, `Pedido cancelado. Materiais devolvidos parcialmente: ${formatNumber(returned, 2)} unidades no total. O custo de produção não é reembolsado.`);
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     const rows = listProductionQueue(db, id(interaction), interaction.user.id, countryId);
     const embed = new EmbedBuilder()
-      .setTitle(`Fila de produção · país ${countryId}`)
+      .setTitle(`Fila de produção · ${getCountryForView(db, id(interaction), interaction.user.id, countryId).name}`)
       .setDescription(rows.length
         ? rows.map((row) => `**${row.item}** × ${formatNumber(row.quantity, 2)} · ${row.status === "in_progress" ? `${row.remaining_years} ano(s) restante(s)` : row.status} · \`${row.id.slice(0, 8)}\``).join("\n").slice(0, 4000)
         : "Nenhum pedido de produção.")
@@ -621,7 +628,7 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        countryNumber(interaction),
+        countryNumber(interaction, db),
         interaction.options.getInteger("item_id", true),
         interaction.options.getNumber("quantidade", true),
         interaction.options.getNumber("preco_unitario", true),
@@ -636,7 +643,7 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        countryNumber(interaction),
+        countryNumber(interaction, db),
         interaction.options.getString("oferta_id", true),
         interaction.options.getNumber("quantidade", true),
         interaction.id,
@@ -654,7 +661,7 @@ const handlers: Record<string, Handler> = {
         db,
         guildId,
         interaction.user.id,
-        countryNumber(interaction),
+        countryNumber(interaction, db),
         interaction.options.getInteger("item_id", true),
         subcommand === "global-comprar" ? "buy" : "sell",
         interaction.options.getNumber("quantidade", true),
@@ -685,7 +692,7 @@ const handlers: Record<string, Handler> = {
   populacao: async (interaction, db) => {
     const guildId = id(interaction);
     if (interaction.options.getSubcommand() === "definir") {
-      configurePopulation(db, guildId, interaction.user.id, countryNumber(interaction), {
+      configurePopulation(db, guildId, interaction.user.id, countryNumber(interaction, db), {
         population: interaction.options.getInteger("populacao", true),
         annualGrowthPercent: interaction.options.getNumber("crescimento_percentual", true),
         foodPerPerson: interaction.options.getNumber("alimento_por_pessoa", true),
@@ -694,7 +701,7 @@ const handlers: Record<string, Handler> = {
       await reply(interaction, "População, crescimento e contador de revolta atualizados.");
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     requireCountryOrNarratorPermission(db, guildId, countryId, interaction.user.id, "population", "read");
     const row = getPopulation(db, guildId, countryId);
     const embed = new EmbedBuilder()
@@ -759,7 +766,7 @@ const handlers: Record<string, Handler> = {
       await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
       return;
     }
-    const countryId = countryNumber(interaction);
+    const countryId = countryNumber(interaction, db);
     requireCountryOrNarratorPermission(db, guildId, countryId, interaction.user.id, "economy", "read");
     const page = interaction.options.getInteger("pagina") ?? 1;
     const rows = db.prepare(
@@ -767,7 +774,7 @@ const handlers: Record<string, Handler> = {
        WHERE guild_id = ? AND country_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 10 OFFSET ?`,
     ).all(guildId, countryId, (page - 1) * 10) as Array<{ year: number; kind: string; amount: number; note: string; actor_id: string; created_at: string }>;
     const embed = new EmbedBuilder()
-      .setTitle(`Extrato · país ${countryId} · página ${page}`)
+      .setTitle(`Extrato · ${getCountryForView(db, guildId, interaction.user.id, countryId).name} · página ${page}`)
       .setDescription(rows.length
         ? rows.map((row) => `Ano ${row.year} · ${row.amount >= 0 ? "+" : ""}${formatNumber(row.amount, 2)} · ${row.kind} · <@${row.actor_id}>\n${row.note}`).join("\n\n").slice(0, 4000)
         : "Nenhum lançamento financeiro.")
