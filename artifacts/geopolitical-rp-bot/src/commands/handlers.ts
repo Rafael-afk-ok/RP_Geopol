@@ -15,7 +15,7 @@ import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCoun
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
 import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
-import { configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
+import { assignArmyEquipment, configureArmySize, configureConsumptionRule, configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
 import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, isMainNarrator, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission } from "../services/permissions.js";
 import { cancelProduction, listProductionQueue, startProduction } from "../services/production.js";
 
@@ -672,6 +672,45 @@ const handlers: Record<string, Handler> = {
       )
       .setFooter({ text: "Consequências de revoltas são decididas pelo narrador." })
       .setColor(0x315e56);
+    await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
+  },
+
+  consumo: async (interaction, db) => {
+    const guildId = id(interaction);
+    requireNarratorPermission(db, guildId, interaction.user.id, "population", "configure");
+    const countryId = countryNumber(interaction, db);
+    const itemId = itemIdByName(db, guildId, interaction.options.getString("item", true));
+    const target = interaction.options.getString("alvo", true) as "population" | "army";
+    const quantity = interaction.options.getNumber("quantidade_por_unidade", true);
+    configureConsumptionRule(db, guildId, interaction.user.id, countryId, itemId, target, quantity);
+    await reply(interaction, `Consumo anual configurado: cada ${target === "population" ? "habitante" : "soldado"} de ${getCountryForView(db, guildId, interaction.user.id, countryId).name} consumirá ${formatNumber(quantity, 4)} unidade(s) de ${interaction.options.getString("item", true)} por ano.`);
+  },
+
+  exercito: async (interaction, db) => {
+    const guildId = id(interaction);
+    const countryId = countryNumber(interaction, db);
+    const subcommand = interaction.options.getSubcommand();
+    if (subcommand === "definir") {
+      configureArmySize(db, guildId, interaction.user.id, countryId, interaction.options.getInteger("efetivo", true));
+      await reply(interaction, "Efetivo militar atualizado.");
+      return;
+    }
+    if (subcommand === "equipamento") {
+      assignArmyEquipment(db, guildId, interaction.user.id, countryId, itemIdByName(db, guildId, interaction.options.getString("item", true)), interaction.options.getInteger("soldados", true));
+      await reply(interaction, "Atribuição de equipamento atualizada. O equipamento permanece no inventário e não é consumido anualmente.");
+      return;
+    }
+    requireCountryOrNarratorPermission(db, guildId, countryId, interaction.user.id, "population", "read");
+    const country = db.prepare("SELECT name, army_size FROM countries WHERE id = ?").get(countryId) as { name: string; army_size: number };
+    const equipment = db.prepare(`SELECT i.name, a.assigned_soldiers FROM army_equipment_assignments a JOIN items i ON i.id = a.item_id WHERE a.country_id = ? ORDER BY i.name`).all(countryId) as Array<{ name: string; assigned_soldiers: number }>;
+    const equipped = equipment.reduce((sum, row) => sum + row.assigned_soldiers, 0);
+    const lines = equipment.map((row) => `**${row.name}:** ${formatNumber(row.assigned_soldiers, 0)} soldados`);
+    lines.push(`**Sem equipamento:** ${formatNumber(Math.max(0, country.army_size - equipped), 0)} soldados`);
+    const embed = new EmbedBuilder().setTitle(`Forças armadas · ${country.name}`).addFields(
+      { name: "Efetivo total", value: formatNumber(country.army_size, 0), inline: true },
+      { name: "Equipados", value: formatNumber(equipped, 0), inline: true },
+      { name: "Sem equipamento", value: formatNumber(Math.max(0, country.army_size - equipped), 0), inline: true },
+    ).setDescription(lines.join("\\n") || "Nenhum equipamento atribuído.").setColor(0x315e56);
     await interaction.editReply({ embeds: [embed], allowedMentions: { parse: [] } });
   },
 
