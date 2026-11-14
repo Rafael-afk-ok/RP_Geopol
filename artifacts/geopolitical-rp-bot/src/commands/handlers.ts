@@ -668,9 +668,9 @@ const handlers: Record<string, Handler> = {
     }
     const offers = listOffers(db, guildId);
     const stock = db.prepare(
-      `SELECT i.id, i.name, g.quantity, g.current_price, g.base_price, g.min_price, g.max_price
+      `SELECT i.id, i.name, g.quantity, g.max_quantity, g.annual_replenishment, g.current_price, g.base_price, g.min_price, g.max_price
        FROM global_stock g JOIN items i ON i.id = g.item_id WHERE g.guild_id = ? ORDER BY i.name`,
-    ).all(guildId) as Array<{ id: number; name: string; quantity: number; current_price: number; base_price: number; min_price: number; max_price: number }>;
+    ).all(guildId) as Array<{ id: number; name: string; quantity: number; max_quantity: number; annual_replenishment: number; current_price: number; base_price: number; min_price: number; max_price: number }>;
     const embed = new EmbedBuilder()
       .setTitle("Mercado mundial · painel público")
       .setDescription("Ofertas entre países e preços do mercado mundial. As compras e vendas globais influenciam os preços no fechamento de cada ano.")
@@ -679,7 +679,7 @@ const handlers: Record<string, Handler> = {
           ? offers.slice(0, 10).map((offer) => `\`${offer.id.slice(0, 8)}\` · ${offer.item} × ${formatNumber(offer.remaining_quantity, 2)} · ${formatNumber(offer.unit_price, 2)} ${offer.currency_symbol} · expira no ano ${offer.expires_year}`).join("\n").slice(0, 1000)
           : "Nenhuma oferta aberta." },
         { name: "Mercado global", value: stock.length
-          ? stock.slice(0, 10).map((item) => `**${item.name}** · estoque ${formatNumber(item.quantity, 2)} · atual ${formatNumber(item.current_price, 2)} · base ${formatNumber(item.base_price, 2)} [${formatNumber(item.min_price, 2)}–${formatNumber(item.max_price, 2)}]`).join("\n").slice(0, 1000)
+          ? stock.slice(0, 10).map((item) => `**${item.name}** · estoque ${formatNumber(item.quantity, 2)}/${formatNumber(item.max_quantity, 2)} · reposição anual ${formatNumber(item.annual_replenishment, 2)} · atual ${formatNumber(item.current_price, 2)} · base ${formatNumber(item.base_price, 2)} [${formatNumber(item.min_price, 2)}–${formatNumber(item.max_price, 2)}]`).join("\n").slice(0, 1000)
           : "Nenhum produto global configurado." },
       )
       .setColor(0x315e56);
@@ -850,7 +850,7 @@ const handlers: Record<string, Handler> = {
         .setColor(0x315e56)
         .setFooter({ text: "Os preços são reajustados no fechamento anual." });
       await interaction.editReply({
-        content: `Ano **${result.year}** processado atomicamente.\nPaíses: ${result.summary.countries} · Receitas: ${formatNumber(result.summary.revenue, 2)} · Despesas: ${formatNumber(result.summary.expenses, 2)} · Produções concluídas: ${result.summary.completedOrders}\nDéficit populacional: ${formatNumber(result.summary.populationShortage, 2)} · Déficit militar: ${formatNumber(result.summary.armyShortage, 2)}\nAcordos executados: ${result.summary.transfersApplied} · Parcelas suspensas por falta de saldo/estoque: ${result.summary.transfersFailed} · Ofertas expiradas: ${result.summary.expiredOffers}\nRegistro: \`${result.runId}\``,
+        content: `Ano **${result.year}** processado atomicamente.\nPaíses: ${result.summary.countries} · Receitas: ${formatNumber(result.summary.revenue, 2)} (impostos: ${formatNumber(result.summary.taxRevenue, 2)} · exportações: ${formatNumber(result.summary.exportRevenue, 2)}) · Despesas: ${formatNumber(result.summary.expenses, 2)} · Produções concluídas: ${result.summary.completedOrders}\nDéficit populacional: ${formatNumber(result.summary.populationShortage, 2)} · Déficit militar: ${formatNumber(result.summary.armyShortage, 2)}\nAcordos executados: ${result.summary.transfersApplied} · Parcelas suspensas por falta de saldo/estoque: ${result.summary.transfersFailed} · Ofertas expiradas: ${result.summary.expiredOffers}\nRegistro: \`${result.runId}\``,
         embeds: [priceEmbed],
         allowedMentions: { parse: [] },
       });
