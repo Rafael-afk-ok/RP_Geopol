@@ -11,7 +11,7 @@ import type Database from "better-sqlite3";
 import { assertDomain, DomainError } from "../domain/errors.js";
 import { audit } from "../services/audit.js";
 import { processAnnualTurn, undoAnnualTurn, listAnnualRuns } from "../services/annual.js";
-import { adjustBalance, configureCountryEconomy, configureInflation, issueInflation, repayInflation, transferBetweenCountries } from "../services/economy.js";
+import { adjustBalance, configureCountryEconomy, configureInflation, issueInflation, repayInflation, roundCurrency, setAutomaticInflation, transferBetweenCountries } from "../services/economy.js";
 import { archiveCountry, createCountry, getAccessibleCountry, listAccessibleCountries, listNarratedCountries, updateCountry } from "../services/countries.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
 import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock, setItemProductionEnabled } from "../services/inventory.js";
@@ -361,6 +361,12 @@ const handlers: Record<string, Handler> = {
         annualIncome: interaction.options.getNumber("renda_anual", true),
       });
       await reply(interaction, `Limites e rendimento anual atualizados.`);
+      return;
+    }
+    if (subcommand === "inflacao-automatica") {
+      const enabled = interaction.options.getBoolean("habilitada", true);
+      setAutomaticInflation(db, guildId, interaction.user.id, countryId, enabled);
+      await reply(interaction, `Financiamento inflacionário automático ${enabled ? "ativado" : "desativado"} para este país.`);
       return;
     }
     if (subcommand === "inflar") {
@@ -728,21 +734,22 @@ const handlers: Record<string, Handler> = {
        FROM items i LEFT JOIN country_inventory v ON v.item_id = i.id AND v.country_id = ?
        WHERE i.guild_id = ? AND i.is_food = 1`,
     ).get(countryId, guildId) as { quantity: number }).quantity;
+    const projectedPopulation = Math.max(0, Math.round(row.population * (1 + row.annual_population_growth / 100)));
     const foodNeed = foodRules.length
-      ? foodRules.reduce((sum, rule) => sum + row.population * rule.quantity_per_unit, 0)
-      : row.population * row.food_per_person;
+      ? foodRules.reduce((sum, rule) => sum + projectedPopulation * rule.quantity_per_unit, 0)
+      : projectedPopulation * row.food_per_person;
     const foodStockForRules = foodRules.reduce((sum, rule) => sum + rule.stock, 0);
     const displayedFoodStock = foodRules.length ? foodStockForRules : totalFoodStock;
     const foodDeficit = foodRules.length
-      ? foodRules.reduce((sum, rule) => sum + Math.max(0, row.population * rule.quantity_per_unit - rule.stock), 0)
+      ? foodRules.reduce((sum, rule) => sum + Math.max(0, projectedPopulation * rule.quantity_per_unit - rule.stock), 0)
       : Math.max(0, foodNeed - totalFoodStock);
     const foodDetails = foodRules.length
       ? foodRules.slice(0, 8).map((rule) =>
-        `• **${rule.name}:** ${formatNumber(row.population * rule.quantity_per_unit, 2)} necessários/ano · ${formatNumber(rule.stock, 2)} em estoque`,
+        `• **${rule.name}:** ${formatNumber(projectedPopulation * rule.quantity_per_unit, 2)} necessários/ano · ${formatNumber(rule.stock, 2)} em estoque`,
       ).join("\\n")
       : `Consumo padrão: ${formatNumber(row.food_per_person, 4)} por habitante/ano, distribuído entre os alimentos cadastrados.`;
     const foodSummary = [
-      `Necessidade anual: **${formatNumber(foodNeed, 2)}**`,
+      `Necessidade anual projetada: **${formatNumber(foodNeed, 2)}**`,
       `Estoque atual: **${formatNumber(displayedFoodStock, 2)}**`,
       `Déficit estimado: **${formatNumber(foodDeficit, 2)}**`,
       foodDetails,
@@ -772,6 +779,11 @@ const handlers: Record<string, Handler> = {
       const direction = interaction.options.getString("direcao", true);
       const type = interaction.options.getString("tipo", true);
       const quantity = interaction.options.getNumber("quantidade", true);
+      if (type === "money") {
+        const rounded = roundCurrency(db, guildId, quantity);
+        assertDomain(rounded > 0 && Math.abs(rounded - quantity) < 1e-9,
+          "Transferências monetárias precisam respeitar as casas decimais configuradas para a moeda.");
+      }
       const duration = interaction.options.getInteger("duracao", true);
       const itemName = interaction.options.getString("item");
       assertDomain(type !== "item" || !!itemName, "Informe o item para transferências de recursos.");
@@ -806,7 +818,7 @@ const handlers: Record<string, Handler> = {
       return;
     }
     const agreementId = interaction.options.getString("id", true);
-    const agreement = db.prepare("SELECT * FROM scheduled_transfers WHERE guild_id = ? AND id LIKE ? AND status = 'active'").get(guildId, agreementId + "%") as { id: string; from_country_id: number; to_country_id: number } | undefined;
+    const agreement = db.prepare("SELECT * FROM scheduled_transfers WHERE guild_id = ? AND id LIKE ? AND status = 'active'").get(guildId, agreementId + "%") as { id: string; from_country_id: number; to_country_id: number; transfer_type: "money" | "item" } | undefined;
     assertDomain(agreement, "Acordo ativo não encontrado.");
     const member = db.prepare("SELECT 1 FROM country_memberships WHERE user_id = ? AND country_id IN (?, ?)").get(interaction.user.id, agreement.from_country_id, agreement.to_country_id);
     assertDomain(narrator || member, "Somente os países envolvidos ou um narrador podem alterar este acordo.");
@@ -817,6 +829,11 @@ const handlers: Record<string, Handler> = {
       return;
     }
     const quantity = interaction.options.getNumber("quantidade", true);
+    if (agreement.transfer_type === "money") {
+      const rounded = roundCurrency(db, guildId, quantity);
+      assertDomain(rounded > 0 && Math.abs(rounded - quantity) < 1e-9,
+        "Transferências monetárias precisam respeitar as casas decimais configuradas para a moeda.");
+    }
     const duration = interaction.options.getInteger("duracao", true);
     db.prepare("UPDATE scheduled_transfers SET amount = ?, duration_years = ?, remaining_years = ? WHERE id = ?").run(quantity, duration, duration, agreement.id);
     audit(db, guildId, interaction.user.id, "edit_annual_transfer", "scheduled_transfer", agreement.id, { quantity, duration });
