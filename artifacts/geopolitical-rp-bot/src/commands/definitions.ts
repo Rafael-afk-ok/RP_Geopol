@@ -44,7 +44,7 @@ export const commandBuilders = [
   new SlashCommandBuilder()
     .setName("configurar")
     .setDescription("Configura regras gerais do servidor")
-    .addSubcommand((subcommand) => subcommand.setName("principal").setDescription("Define o narrador principal (somente o dono do servidor)"))
+    .addSubcommand((subcommand) => subcommand.setName("principal").setDescription("Define o narrador principal (dono ou administrador do servidor)"))
     .addSubcommand((subcommand) =>
       subcommand.setName("moeda").setDescription("Define a moeda usada por todos os países")
         .addStringOption((option) => option.setName("nome").setDescription("Nome da moeda").setRequired(true).setMaxLength(40))
