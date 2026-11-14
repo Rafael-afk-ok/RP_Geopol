@@ -6,10 +6,11 @@ import { audit } from "./audit.js";
 import { adjustBalance } from "./economy.js";
 import { requireNarratorPermission } from "./permissions.js";
 import { runIdempotently } from "./idempotency.js";
+import { processAnnualTradeContracts } from "./international-trade.js";
 
 interface AnnualSnapshot {
   currentYear: number;
-  countries: Array<{ id: number; treasury: number; population: number; revolt_counter: number; army_size: number }>;
+  countries: Array<{ id: number; treasury: number; population: number; revolt_counter: number; army_size: number; military_readiness: number }>;
   consumptionRules: Array<{ country_id: number; item_id: number; target: string; quantity_per_unit: number }>;
   equipment: Array<{ country_id: number; item_id: number; assigned_soldiers: number }>;
   transfers: Array<{ id: string; remaining_years: number; status: string }>;
@@ -18,6 +19,7 @@ interface AnnualSnapshot {
   economyEntries: Array<{ id: number; active: number }>;
   globalStock: Array<{ item_id: number; quantity: number; current_price: number; base_price: number; min_price: number; max_price: number }>;
   playerOffers: Array<{ id: string; remaining_quantity: number; status: string }>;
+  tradeContracts: Array<{ id: string; remaining_years: number; status: string; last_result: string }> ;
 }
 
 function snapshotGuild(db: Database.Database, guildId: string): AnnualSnapshot {
@@ -28,7 +30,7 @@ function snapshotGuild(db: Database.Database, guildId: string): AnnualSnapshot {
   return {
     currentYear: settings.current_year,
     countries: db.prepare(
-      `SELECT id, treasury, population, revolt_counter, army_size FROM countries
+      `SELECT id, treasury, population, revolt_counter, army_size, military_readiness FROM countries
        WHERE guild_id = ? AND status = 'active' ORDER BY id`,
     ).all(guildId) as AnnualSnapshot["countries"],
     consumptionRules: db.prepare(`SELECT r.country_id, r.item_id, r.target, r.quantity_per_unit FROM country_consumption_rules r JOIN countries c ON c.id = r.country_id WHERE c.guild_id = ? ORDER BY r.country_id, r.target, r.item_id`).all(guildId) as AnnualSnapshot["consumptionRules"],
@@ -52,6 +54,7 @@ function snapshotGuild(db: Database.Database, guildId: string): AnnualSnapshot {
     playerOffers: db.prepare(
       "SELECT id, remaining_quantity, status FROM player_offers WHERE guild_id = ? ORDER BY id",
     ).all(guildId) as AnnualSnapshot["playerOffers"],
+    tradeContracts: db.prepare("SELECT id, remaining_years, status, last_result FROM trade_contracts WHERE guild_id = ? ORDER BY id").all(guildId) as AnnualSnapshot["tradeContracts"],
   };
 }
 
@@ -127,10 +130,10 @@ export function processAnnualTurn(
 
     const before = snapshotGuild(db, guildId);
     const runId = randomUUID();
-    const summary = { countries: 0, revenue: 0, taxRevenue: 0, exportRevenue: 0, expenses: 0, completedOrders: 0, expiredOffers: 0, foodDeficit: 0, populationShortage: 0, armyShortage: 0, transfersApplied: 0, transfersFailed: 0 };
+    const summary = { countries: 0, revenue: 0, taxRevenue: 0, exportRevenue: 0, expenses: 0, completedOrders: 0, expiredOffers: 0, foodDeficit: 0, populationShortage: 0, armyShortage: 0, transfersApplied: 0, transfersFailed: 0, tradeContractsApplied: 0, tradeContractsFailed: 0, tradeTariffs: 0 };
     const countries = db.prepare(
       `SELECT id, name, treasury, max_money, debt_limit, annual_income, population,
-        annual_population_growth, food_per_person, revolt_counter, inflation_issued, army_size
+        annual_population_growth, food_per_person, revolt_counter, inflation_issued, army_size, military_readiness
        FROM countries WHERE guild_id = ? AND status = 'active' ORDER BY id`,
     ).all(guildId) as Array<{
       id: number;
@@ -144,6 +147,7 @@ export function processAnnualTurn(
       food_per_person: number;
       revolt_counter: number;
       army_size: number;
+      military_readiness: number;
       inflation_issued: number;
     }>;
     summary.countries = countries.length;
@@ -199,10 +203,11 @@ export function processAnnualTurn(
 
       const operatingFlows = db.prepare(
         `SELECT
-           COALESCE(SUM(v.quantity * i.annual_maintenance), 0) AS maintenance,
+           COALESCE(SUM((CASE WHEN i.category = 'military' THEN COALESCE(a.assigned_soldiers, 0) ELSE v.quantity END) * i.annual_maintenance), 0) AS maintenance,
            COALESCE(SUM(v.quantity * i.annual_income_per_unit), 0) AS income,
            COALESCE(SUM(v.quantity * i.annual_expense_per_unit), 0) AS expense
          FROM country_inventory v JOIN items i ON i.id = v.item_id
+         LEFT JOIN army_equipment_assignments a ON a.country_id = v.country_id AND a.item_id = v.item_id
          WHERE v.country_id = ?`,
       ).get(country.id) as { maintenance: number; income: number; expense: number };
       if (operatingFlows.income > 0) {
@@ -278,6 +283,13 @@ export function processAnnualTurn(
         inventoryDelta(row.country_id, row.item_id, -Math.min(available, row.annual_consumption));
       }
     }
+
+    const tradeResult = processAnnualTradeContracts(db, guildId, actorId, year, runId);
+    summary.tradeContractsApplied = tradeResult.applied;
+    summary.tradeContractsFailed = tradeResult.failed;
+    summary.tradeTariffs = tradeResult.tariffs;
+    summary.revenue += tradeResult.revenue;
+    summary.expenses += tradeResult.expenses;
 
     // Timed orders become operational only after the final year finishes.
     const orders = db.prepare(
@@ -415,6 +427,11 @@ export function processAnnualTurn(
       }
       const populationRatio = populationNeed > 0 ? populationShortage / populationNeed : 0;
       const armyRatio = armyNeed > 0 ? armyShortage / armyNeed : 0;
+      const equippedRow = db.prepare("SELECT COALESCE(SUM(assigned_soldiers), 0) AS assigned FROM army_equipment_assignments WHERE country_id = ?").get(country.id) as { assigned: number };
+      const equipmentCoverage = country.army_size > 0 ? Math.min(1, equippedRow.assigned / country.army_size) : 1;
+      const readinessChange = (armyRatio > 0 ? -(2 + armyRatio * 60) : 2) - (1 - equipmentCoverage) * 8;
+      const nextReadiness = Math.max(0, Math.min(100, country.military_readiness + readinessChange));
+      db.prepare("UPDATE countries SET military_readiness = ? WHERE id = ?").run(nextReadiness, country.id);
       summary.foodDeficit += populationShortage;
       summary.populationShortage += populationShortage;
       summary.armyShortage += armyShortage;
@@ -577,11 +594,12 @@ export function undoAnnualTurn(
     const before = JSON.parse(run.before_snapshot_json) as AnnualSnapshot;
 
     for (const country of before.countries) {
-      db.prepare("UPDATE countries SET treasury = ?, population = ?, revolt_counter = ?, army_size = ? WHERE id = ?").run(
+      db.prepare("UPDATE countries SET treasury = ?, population = ?, revolt_counter = ?, army_size = ?, military_readiness = ? WHERE id = ?").run(
         country.treasury,
         country.population,
         country.revolt_counter,
         country.army_size,
+        country.military_readiness,
         country.id,
       );
     }
@@ -637,6 +655,11 @@ export function undoAnnualTurn(
         offer.id,
       );
     }
+    for (const contract of before.tradeContracts) {
+      db.prepare("UPDATE trade_contracts SET remaining_years = ?, status = ?, last_result = ? WHERE id = ?").run(
+        contract.remaining_years, contract.status, contract.last_result, contract.id,
+      );
+    }
     db.prepare("UPDATE guild_settings SET current_year = ? WHERE guild_id = ?").run(before.currentYear, guildId);
 
     const annualLedger = db.prepare("SELECT id, country_id, amount, kind FROM financial_ledger WHERE run_id = ?").all(run.id) as Array<{
@@ -664,6 +687,7 @@ export function undoAnnualTurn(
       );
     }
     db.prepare("UPDATE global_price_history SET voided_at = CURRENT_TIMESTAMP WHERE run_id = ?").run(run.id);
+    db.prepare("UPDATE international_trade_history SET voided_at = CURRENT_TIMESTAMP WHERE run_id = ?").run(run.id);
     db.prepare("UPDATE annual_runs SET undone_at = CURRENT_TIMESTAMP WHERE id = ?").run(run.id);
     audit(db, guildId, actorId, "undo_annual_turn", "annual_run", run.id, {
       year: run.year,
