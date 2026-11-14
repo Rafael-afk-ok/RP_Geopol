@@ -35,8 +35,8 @@ const actions = [
 ];
 
 function countryId(subcommand: SlashCommandSubcommandBuilder, required = true): SlashCommandSubcommandBuilder {
-  return subcommand.addIntegerOption((option) =>
-    option.setName("pais_id").setDescription("ID interno do país").setRequired(required).setMinValue(1),
+  return subcommand.addStringOption((option) =>
+    option.setName("pais").setDescription("Nome do país").setRequired(required).setMaxLength(80),
   );
 }
 
@@ -144,7 +144,7 @@ export const commandBuilders = [
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("definir").setDescription("Define o valor de um indicador para um país")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID interno do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addIntegerOption((option) => option.setName("indicador_id").setDescription("ID do indicador").setRequired(true).setMinValue(1))
         .addStringOption((option) => option.setName("valor").setDescription("Valor, em JSON válido").setRequired(true).setMaxLength(2000)),
     )
@@ -157,14 +157,14 @@ export const commandBuilders = [
     .setDescription("Configura rendimentos e movimentações econômicas")
     .addSubcommand((subcommand) =>
       subcommand.setName("configurar").setDescription("Define saldo máximo, dívida e renda anual (narrador)")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("limite_divida").setDescription("Dívida máxima").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("renda_anual").setDescription("Rendimento base anual").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("limite_saldo").setDescription("Limite máximo; deixe vazio para ilimitado").setRequired(false).setMinValue(0)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("lancar").setDescription("Cria uma receita ou despesa pontual/recorrente")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addStringOption((option) => option.setName("tipo").setDescription("Receita ou despesa").setRequired(true)
           .addChoices({ name: "Receita", value: "income" }, { name: "Despesa", value: "expense" }))
         .addNumberOption((option) => option.setName("valor").setDescription("Valor").setRequired(true).setMinValue(0.01))
@@ -175,20 +175,20 @@ export const commandBuilders = [
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("inflar").setDescription("Emite dinheiro voluntariamente para o país")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("valor").setDescription("Valor emitido").setRequired(true).setMinValue(0.01)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("devolver-inflacao").setDescription("Devolve exatamente todo o valor emitido")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addNumberOption((option) => option.setName("valor_exato").setDescription("Total exato emitido").setRequired(true).setMinValue(0.01)),
     ),
 
   new SlashCommandBuilder()
     .setName("transferir")
     .setDescription("Transfere dinheiro entre países")
-    .addIntegerOption((option) => option.setName("origem").setDescription("ID do país de origem").setRequired(true).setMinValue(1))
-    .addIntegerOption((option) => option.setName("destino").setDescription("ID do país de destino").setRequired(true).setMinValue(1))
+    .addStringOption((option) => option.setName("origem").setDescription("Nome do país de origem").setRequired(true).setMaxLength(80))
+    .addStringOption((option) => option.setName("destino").setDescription("Nome do país de destino").setRequired(true).setMaxLength(80))
     .addNumberOption((option) => option.setName("valor").setDescription("Valor").setRequired(true).setMinValue(0.01))
     .addStringOption((option) => option.setName("descricao").setDescription("Motivo da transferência").setRequired(false).setMaxLength(200)),
 
@@ -221,18 +221,18 @@ export const commandBuilders = [
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("ajustar").setDescription("Corrige o estoque de um país (narrador)")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
         .addNumberOption((option) => option.setName("variacao").setDescription("Quantidade adicionada ou removida").setRequired(true))
         .addStringOption((option) => option.setName("motivo").setDescription("Motivo").setRequired(true).setMaxLength(200)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("consultar").setDescription("Consulta o inventário privado de um país")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1)),
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("producao-anual").setDescription("Define produção e consumo anual de um bem")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
         .addNumberOption((option) => option.setName("produz").setDescription("Quantidade anual produzida").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("consome").setDescription("Quantidade anual consumida (exceto alimento)").setRequired(true).setMinValue(0)),
@@ -257,7 +257,7 @@ export const commandBuilders = [
     .setDescription("Inicia, acompanha ou cancela produção")
     .addSubcommand((subcommand) =>
       subcommand.setName("iniciar").setDescription("Produz instantaneamente ou cria um pedido temporizado")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
         .addNumberOption((option) => option.setName("quantidade").setDescription("Quantidade").setRequired(true).setMinValue(0.01)),
     )
@@ -267,7 +267,7 @@ export const commandBuilders = [
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("fila").setDescription("Consulta os pedidos de produção de um país")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1)),
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80)),
     ),
 
   new SlashCommandBuilder()
@@ -275,7 +275,7 @@ export const commandBuilders = [
     .setDescription("Negocia itens entre países ou no mercado global")
     .addSubcommand((subcommand) =>
       subcommand.setName("ofertar").setDescription("Cria uma oferta de venda; o estoque fica reservado")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país vendedor").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
         .addNumberOption((option) => option.setName("quantidade").setDescription("Quantidade").setRequired(true).setMinValue(0.01))
         .addNumberOption((option) => option.setName("preco_unitario").setDescription("Preço por unidade").setRequired(true).setMinValue(0.01))
@@ -283,7 +283,7 @@ export const commandBuilders = [
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("comprar").setDescription("Compra parte ou o total de uma oferta")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país comprador").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addStringOption((option) => option.setName("oferta_id").setDescription("ID da oferta").setRequired(true))
         .addNumberOption((option) => option.setName("quantidade").setDescription("Quantidade comprada").setRequired(true).setMinValue(0.01)),
     )
@@ -300,13 +300,13 @@ export const commandBuilders = [
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("global-comprar").setDescription("Compra estoque do mercado global")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
         .addNumberOption((option) => option.setName("quantidade").setDescription("Quantidade").setRequired(true).setMinValue(0.01)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("global-vender").setDescription("Vende estoque ao mercado global")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addIntegerOption((option) => option.setName("item_id").setDescription("ID do item").setRequired(true).setMinValue(1))
         .addNumberOption((option) => option.setName("quantidade").setDescription("Quantidade").setRequired(true).setMinValue(0.01)),
     ),
@@ -316,11 +316,11 @@ export const commandBuilders = [
     .setDescription("Consulta e configura população e abastecimento")
     .addSubcommand((subcommand) =>
       subcommand.setName("consultar").setDescription("Consulta população e contador de revolta")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1)),
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80)),
     )
     .addSubcommand((subcommand) =>
       subcommand.setName("definir").setDescription("Define população, crescimento, necessidade alimentar e revolta")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addIntegerOption((option) => option.setName("populacao").setDescription("População").setRequired(true).setMinValue(0))
         .addNumberOption((option) => option.setName("crescimento_percentual").setDescription("Crescimento anual em %").setRequired(true))
         .addNumberOption((option) => option.setName("alimento_por_pessoa").setDescription("Unidades de alimento por habitante").setRequired(true).setMinValue(0))
@@ -338,7 +338,7 @@ export const commandBuilders = [
     .setDescription("Consulta registros auditáveis do jogo")
     .addSubcommand((subcommand) =>
       subcommand.setName("financeiro").setDescription("Consulta o extrato de um país")
-        .addIntegerOption((option) => option.setName("pais_id").setDescription("ID do país").setRequired(true).setMinValue(1))
+        .addStringOption((option) => option.setName("pais").setDescription("Nome do país").setRequired(true).setMaxLength(80))
         .addIntegerOption((option) => option.setName("pagina").setDescription("Página do extrato").setRequired(false).setMinValue(1)),
     )
     .addSubcommand((subcommand) => subcommand.setName("anos").setDescription("Lista processamentos e reversões anuais")
