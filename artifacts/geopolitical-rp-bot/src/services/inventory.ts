@@ -256,10 +256,67 @@ export function listCountryInventory(
 ): Array<{ id: number; name: string; category: string; quantity: number; unit: string }> {
   requireCountryOrNarratorPermission(db, guildId, countryId, actorId, "inventory" as PermissionSystem, "read");
   return db.prepare(
-    `SELECT i.id, i.name, COALESCE(cc.name, i.category) AS category, COALESCE(v.quantity, 0) AS quantity,
+    `SELECT i.id, i.name,
+      CASE WHEN i.category = 'military' THEN 'Militar' ELSE COALESCE(cc.name, 'Indústria e bens') END AS category,
+      COALESCE(v.quantity, 0) AS quantity,
+      COALESCE(p.annual_production, 0) AS annual_production,
+      COALESCE(p.annual_consumption, 0) AS annual_consumption,
       json_extract(i.properties_json, '$.unit') AS unit
      FROM items i LEFT JOIN country_inventory v ON v.item_id = i.id AND v.country_id = ?
+     LEFT JOIN country_production p ON p.item_id = i.id AND p.country_id = ?
      LEFT JOIN custom_item_categories cc ON cc.id = i.custom_category_id
-     WHERE i.guild_id = ? ORDER BY i.category, i.name COLLATE NOCASE`,
-  ).all(countryId, guildId) as Array<{ id: number; name: string; category: string; quantity: number; unit: string }>;
+     WHERE i.guild_id = ? ORDER BY CASE WHEN i.category = 'military' THEN 3 WHEN cc.name = 'Recursos naturais' THEN 1 ELSE 2 END, i.name COLLATE NOCASE`,
+  ).all(countryId, countryId, guildId) as Array<{ id: number; name: string; category: string; quantity: number; annual_production: number; annual_consumption: number; unit: string }>;
 }
+
+
+export function ensureDefaultCatalog(db: Database.Database, guildId: string, actorId: string): void {
+  const categories = [
+    { name: "Recursos naturais", description: "Matérias-primas e recursos básicos." },
+    { name: "Indústria e bens", description: "Produtos industriais e bens de consumo." },
+  ];
+  const categoryIds = new Map<string, number>();
+  for (const category of categories) {
+    db.prepare("INSERT OR IGNORE INTO custom_item_categories (guild_id, name, description, created_by) VALUES (?, ?, ?, ?)")
+      .run(guildId, category.name, category.description, actorId);
+    const row = db.prepare("SELECT id FROM custom_item_categories WHERE guild_id = ? AND name = ?")
+      .get(guildId, category.name) as { id: number };
+    categoryIds.set(category.name, row.id);
+  }
+  const defaults: Array<{ name: string; category: "common" | "military" | "custom"; group?: string; unit: string; food?: boolean; years?: number; cost?: number; maintenance?: number }> = [
+    { name: "Grãos", category: "custom", group: "Recursos naturais", unit: "t", food: true, cost: 12 },
+    { name: "Ferro", category: "custom", group: "Recursos naturais", unit: "t", cost: 18 },
+    { name: "Petróleo", category: "custom", group: "Recursos naturais", unit: "barris", cost: 22 },
+    { name: "Carvão", category: "custom", group: "Recursos naturais", unit: "t", cost: 10 },
+    { name: "Madeira", category: "custom", group: "Recursos naturais", unit: "m³", cost: 8 },
+    { name: "Borracha", category: "custom", group: "Recursos naturais", unit: "t", cost: 25 },
+    { name: "Aço", category: "custom", group: "Indústria e bens", unit: "t", cost: 45, years: 1 },
+    { name: "Cimento", category: "custom", group: "Indústria e bens", unit: "t", cost: 20 },
+    { name: "Ferramentas", category: "custom", group: "Indústria e bens", unit: "un.", cost: 35 },
+    { name: "Máquinas", category: "custom", group: "Indústria e bens", unit: "un.", cost: 120, years: 1 },
+    { name: "Tecidos", category: "custom", group: "Indústria e bens", unit: "m", cost: 15 },
+    { name: "Fertilizantes", category: "custom", group: "Indústria e bens", unit: "t", cost: 28 },
+    { name: "Armas leves", category: "military", unit: "un.", cost: 60, years: 1, maintenance: 2 },
+    { name: "Artilharia", category: "military", unit: "un.", cost: 250, years: 2, maintenance: 12 },
+    { name: "Munição", category: "military", unit: "lotes", cost: 20 },
+    { name: "Uniformes", category: "military", unit: "un.", cost: 18 },
+    { name: "Navios", category: "military", unit: "un.", cost: 1800, years: 3, maintenance: 90 },
+    { name: "Veículos militares", category: "military", unit: "un.", cost: 500, years: 2, maintenance: 25 },
+  ];
+  const insert = db.prepare(
+    `INSERT OR IGNORE INTO items
+      (guild_id, name, category, description, properties_json, production_cost, annual_maintenance,
+       production_years, max_parallel_orders, is_food, global_tradeable, created_by,
+       custom_category_id, annual_income_per_unit, annual_expense_per_unit)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 2, ?, 1, ?, ?, 0, 0)`,
+  );
+  for (const item of defaults) {
+    insert.run(
+      guildId, item.name, item.category, "Produto padrão do catálogo nacional.",
+      JSON.stringify({ unit: item.unit }), item.cost ?? 10, item.maintenance ?? 0,
+      item.years ?? 0, item.food ? 1 : 0, actorId,
+      item.group ? categoryIds.get(item.group) ?? null : null,
+    );
+  }
+}
+
