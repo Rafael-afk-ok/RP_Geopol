@@ -17,7 +17,7 @@ import { resetCountryData, resetGuildData } from "../services/reset.js";
 import { createIndicator, createIndicatorCategory, listIndicators, setIndicatorValue } from "../services/indicators.js";
 import { adjustInventory, addItemRequirement, createCustomItemCategory, defineItem, listCountryInventory, ensureDefaultCatalog, setCountryProduction, setGlobalStock, setItemProductionEnabled } from "../services/inventory.js";
 import { buyPlayerOffer, cancelPlayerOffer, configureCurrency, createPlayerOffer, listOffers, setMarketSettings, tradeGlobalMarket } from "../services/market.js";
-import { assignArmyEquipment, configureArmySize, configureConsumptionRule, configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
+import { assignArmyEquipment, configureArmySize, configureConsumptionRule, configureGlobalConsumptionRule, listGlobalConsumptionRules, configurePopulation, configurePopulationRules, getPopulation } from "../services/population.js";
 import { associatePlayer, bootstrapMainNarrator, grantNarratorPermission, hasNarratorPermission, isMainNarrator, removePlayer, requireCountryOrNarratorPermission, requireCountryPermission, requireNarratorPermission } from "../services/permissions.js";
 import { cancelProduction, listProductionQueue, startProduction } from "../services/production.js";
 import { getMilitaryStatus, modernizeMilitaryEquipment } from "../services/military.js";
@@ -884,12 +884,30 @@ const handlers: Record<string, Handler> = {
   consumo: async (interaction, db) => {
     const guildId = id(interaction);
     requireNarratorPermission(db, guildId, interaction.user.id, "population", "configure");
+    const subcommand = interaction.options.getSubcommand();
+    if (subcommand === "global") {
+      const itemName = interaction.options.getString("item");
+      const target = interaction.options.getString("alvo") as "population" | "army" | null;
+      const quantity = interaction.options.getNumber("quantidade_por_unidade");
+      if (itemName === null && target === null && quantity === null) {
+        const rows = listGlobalConsumptionRules(db, guildId);
+        await reply(interaction, rows.length
+          ? "**Padrões globais de consumo (herdados por novos países)**\\n" + rows.map((row) => `**${row.item_name}** — ${row.target === "population" ? "população" : "exército"}: ${formatNumber(row.quantity_per_unit, 4)} por unidade/ano`).join("\\n")
+          : "Nenhum padrão global configurado. Informe item, alvo e quantidade para criar o primeiro.");
+        return;
+      }
+      assertDomain(itemName !== null && target !== null && quantity !== null, "Para configurar, informe item, alvo e quantidade_por_unidade. Sem parâmetros, o comando consulta os padrões.");
+      configureGlobalConsumptionRule(db, guildId, interaction.user.id, itemIdByName(db, guildId, itemName), target, quantity);
+      await reply(interaction, `Padrão global salvo: cada ${target === "population" ? "habitante" : "soldado"} consumirá ${formatNumber(quantity, 4)} unidade(s) de ${itemName} por ano. Novos países herdarão essa regra; países existentes não serão alterados.`);
+      return;
+    }
     const countryId = countryNumber(interaction, db);
-    const itemId = itemIdByName(db, guildId, interaction.options.getString("item", true));
+    const itemName = interaction.options.getString("item", true);
+    const itemId = itemIdByName(db, guildId, itemName);
     const target = interaction.options.getString("alvo", true) as "population" | "army";
     const quantity = interaction.options.getNumber("quantidade_por_unidade", true);
     configureConsumptionRule(db, guildId, interaction.user.id, countryId, itemId, target, quantity);
-    await reply(interaction, `Consumo anual configurado: cada ${target === "population" ? "habitante" : "soldado"} de ${getCountryForView(db, guildId, interaction.user.id, countryId).name} consumirá ${formatNumber(quantity, 4)} unidade(s) de ${interaction.options.getString("item", true)} por ano.`);
+    await reply(interaction, `Consumo anual configurado: cada ${target === "population" ? "habitante" : "soldado"} de ${getCountryForView(db, guildId, interaction.user.id, countryId).name} consumirá ${formatNumber(quantity, 4)} unidade(s) de ${itemName} por ano.`);
   },
 
   militar: async (interaction, db) => {
