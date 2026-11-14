@@ -28,6 +28,8 @@ test("all requested slash-command categories are registered with unique valid na
     "ranking",
     "ajuda",
     "ping",
+    "militar",
+    "comercio",
   ];
   assert.deepEqual(names, expected);
   assert.equal(new Set(names).size, names.length);
