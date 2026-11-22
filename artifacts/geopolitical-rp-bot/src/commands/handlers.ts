@@ -5,7 +5,7 @@ import {
 } from "discord.js";
 import type Database from "better-sqlite3";
 import { DomainError, assertDomain } from "../domain/errors.js";
-import { ensureGuildSettings, audit } from "../services/audit.js";
+import { ensureDefaultCatalog } from "../services/inventory.js";
 import { createCountry, listAccessibleCountries, listNarratedCountries } from "../services/countries.js";
 import { adjustBalance, configureCountryEconomy } from "../services/economy.js";
 import { adjustInventory, defineItem, listCountryInventory, setCountryProduction, type ItemInput } from "../services/inventory.js";
@@ -99,6 +99,7 @@ const handlers: Record<string,Handler> = {
       defineItem(db,g,i.user.id,input);
       await i.editReply(`Recurso **${name}** cadastrado.`);
     } else if(sub==="painel"){
+      ensureDefaultCatalog(db,g,i.user.id);
       const c=ownCountry(db,i,i.options.getString("pais")??undefined);
       const rows=listCountryInventory(db,g,i.user.id,c.id);
       const lines=rows.map(r=>`**${r.name}** — estoque: ${fmt(r.quantity)} ${r.unit??""} · produção anual: +${fmt(r.annual_production)} · consumo anual: −${fmt(r.annual_consumption)} · saldo projetado: ${fmt(r.annual_production-r.annual_consumption)}`);
