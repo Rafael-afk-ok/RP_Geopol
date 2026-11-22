@@ -3,19 +3,6 @@ import { SlashCommandBuilder } from "discord.js";
 const countryOption = (sub: any, name = "pais", required = true) =>
   sub.addStringOption((o: any) => o.setName(name).setDescription("Nação").setRequired(required).setMaxLength(80).setAutocomplete(true));
 
-const itemOption = (sub: any) =>
-  sub.addStringOption((o: any) => o.setName("item").setDescription("Item do inventário").setRequired(true).setMaxLength(80).setAutocomplete(true));
-
-const operationOption = (sub: any) =>
-  sub.addStringOption((o: any) => o.setName("operacao").setDescription("Operação").setRequired(true)
-    .addChoices({ name: "Adicionar", value: "add" }, { name: "Remover", value: "rem" }, { name: "Definir valor", value: "set" }));
-
-const amountOption = (sub: any, description = "Quantidade") =>
-  sub.addNumberOption((o: any) => o.setName("valor").setDescription(description).setRequired(true).setMinValue(0));
-
-const reasonOption = (sub: any) =>
-  sub.addStringOption((o: any) => o.setName("motivo").setDescription("Motivo da alteração").setRequired(true).setMaxLength(200));
-
 const economySubcommand = (group: any, name: string, description: string) =>
   group.addSubcommand((s: any) => s.setName(name).setDescription(description)
     .addStringOption((o: any) => o.setName("nacao").setDescription("Nação").setRequired(true).setMaxLength(80).setAutocomplete(true))
