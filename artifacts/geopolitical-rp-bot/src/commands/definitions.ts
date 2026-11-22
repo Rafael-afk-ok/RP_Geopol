@@ -1,7 +1,37 @@
 import { SlashCommandBuilder } from "discord.js";
 
-const countryOption = (sub: any, required = true) =>
-  sub.addStringOption((o: any) => o.setName("pais").setDescription("Nome do país").setRequired(required).setMaxLength(80));
+const countryOption = (sub: any, name = "pais", required = true) =>
+  sub.addStringOption((o: any) => o.setName(name).setDescription("Nação").setRequired(required).setMaxLength(80).setAutocomplete(true));
+
+const itemOption = (sub: any) =>
+  sub.addStringOption((o: any) => o.setName("item").setDescription("Item do inventário").setRequired(true).setMaxLength(80).setAutocomplete(true));
+
+const operationOption = (sub: any) =>
+  sub.addStringOption((o: any) => o.setName("operacao").setDescription("Operação").setRequired(true)
+    .addChoices({ name: "Adicionar", value: "add" }, { name: "Remover", value: "rem" }, { name: "Definir valor", value: "set" }));
+
+const amountOption = (sub: any, description = "Quantidade") =>
+  sub.addNumberOption((o: any) => o.setName("valor").setDescription(description).setRequired(true).setMinValue(0));
+
+const reasonOption = (sub: any) =>
+  sub.addStringOption((o: any) => o.setName("motivo").setDescription("Motivo da alteração").setRequired(true).setMaxLength(200));
+
+const economySubcommand = (group: any, name: string, description: string) =>
+  group.addSubcommand((s: any) => s.setName(name).setDescription(description)
+    .addStringOption((o: any) => o.setName("nacao").setDescription("Nação").setRequired(true).setMaxLength(80).setAutocomplete(true))
+    .addStringOption((o: any) => o.setName("operacao").setDescription("Adicionar, remover ou definir").setRequired(true)
+      .addChoices({ name: "Adicionar", value: "add" }, { name: "Remover", value: "rem" }, { name: "Definir valor", value: "set" }))
+    .addNumberOption((o: any) => o.setName("valor").setDescription("Valor monetário").setRequired(true).setMinValue(0))
+    .addStringOption((o: any) => o.setName("motivo").setDescription("Motivo da alteração").setRequired(true).setMaxLength(200)));
+
+const inventorySubcommand = (group: any, name: string, description: string) =>
+  group.addSubcommand((s: any) => s.setName(name).setDescription(description)
+    .addStringOption((o: any) => o.setName("nacao").setDescription("Nação").setRequired(true).setMaxLength(80).setAutocomplete(true))
+    .addStringOption((o: any) => o.setName("item").setDescription("Item do inventário").setRequired(true).setMaxLength(80).setAutocomplete(true))
+    .addStringOption((o: any) => o.setName("operacao").setDescription("Adicionar, remover ou definir").setRequired(true)
+      .addChoices({ name: "Adicionar", value: "add" }, { name: "Remover", value: "rem" }, { name: "Definir valor", value: "set" }))
+    .addNumberOption((o: any) => o.setName("valor").setDescription("Quantidade").setRequired(true).setMinValue(0))
+    .addStringOption((o: any) => o.setName("motivo").setDescription("Motivo da alteração").setRequired(true).setMaxLength(200)));
 
 export const commandBuilders = [
   new SlashCommandBuilder().setName("configurar").setDescription("Configuração inicial do servidor")
@@ -16,45 +46,37 @@ export const commandBuilders = [
       .addStringOption(o => o.setName("nome").setDescription("Nome da nação").setRequired(true).setMaxLength(80))
       .addRoleOption(o => o.setName("cargo").setDescription("Cargo dos membros da nação").setRequired(true)))
     .addSubcommand(s => s.setName("listar").setDescription("Lista suas nações ou todas, se narrador"))
-    .addSubcommand(s => countryOption(s.setName("ver").setDescription("Consulta uma nação"))),
+    .addSubcommand(s => countryOption(s.setName("ver").setDescription("Consulta uma nação")))
+    .addSubcommand(s => countryOption(s.setName("deletar").setDescription("Apaga definitivamente uma nação"))),
   new SlashCommandBuilder().setName("jogador").setDescription("Associa jogadores às nações")
     .addSubcommand(s => s.setName("associar").setDescription("Associa uma pessoa a uma nação")
-      .addStringOption(o => o.setName("pais").setDescription("Nome da nação").setRequired(true).setMaxLength(80))
+      .addStringOption(o => o.setName("pais").setDescription("Nação").setRequired(true).setMaxLength(80).setAutocomplete(true))
       .addUserOption(o => o.setName("jogador").setDescription("Pessoa").setRequired(true)))
     .addSubcommand(s => s.setName("remover").setDescription("Remove a associação de uma pessoa")
-      .addStringOption(o => o.setName("pais").setDescription("Nome da nação").setRequired(true).setMaxLength(80))
+      .addStringOption(o => o.setName("pais").setDescription("Nação").setRequired(true).setMaxLength(80).setAutocomplete(true))
       .addUserOption(o => o.setName("jogador").setDescription("Pessoa").setRequired(true)))
     .addSubcommand(s => s.setName("meus-paises").setDescription("Lista suas nações")),
   new SlashCommandBuilder().setName("inventario").setDescription("Consulta e administra recursos")
     .addSubcommand(s => s.setName("painel").setDescription("Mostra estoque, produção e consumo")
-      .addStringOption(o => o.setName("pais").setDescription("Nação (opcional se controlar apenas uma)").setRequired(false).setMaxLength(80)))
+      .addStringOption(o => o.setName("pais").setDescription("Nação (opcional se controlar apenas uma)").setRequired(false).setMaxLength(80).setAutocomplete(true)))
     .addSubcommand(s => s.setName("criar-item").setDescription("Cadastra um recurso")
       .addStringOption(o => o.setName("nome").setDescription("Nome do recurso").setRequired(true).setMaxLength(80))
       .addStringOption(o => o.setName("categoria").setDescription("Categoria").setRequired(true)
         .addChoices({name:"Recurso",value:"common"},{name:"Militar",value:"military"}))
       .addStringOption(o => o.setName("unidade").setDescription("Unidade de medida").setRequired(true).setMaxLength(20)))
-    .addSubcommand(s => s.setName("ajustar").setDescription("Adiciona ou remove estoque (narrador)")
-      .addStringOption(o => o.setName("pais").setDescription("Nação").setRequired(true).setMaxLength(80))
-      .addStringOption(o => o.setName("item").setDescription("Recurso").setRequired(true).setMaxLength(80))
-      .addNumberOption(o => o.setName("variacao").setDescription("Quantidade positiva ou negativa").setRequired(true))
-      .addStringOption(o => o.setName("motivo").setDescription("Motivo").setRequired(true).setMaxLength(200)))
-    .addSubcommand(s => s.setName("producao").setDescription("Define produção e consumo anuais (narrador)")
-      .addStringOption(o => o.setName("pais").setDescription("Nação").setRequired(true).setMaxLength(80))
-      .addStringOption(o => o.setName("item").setDescription("Recurso").setRequired(true).setMaxLength(80))
-      .addNumberOption(o => o.setName("produz").setDescription("Produção anual").setRequired(true).setMinValue(0))
-      .addNumberOption(o => o.setName("consome").setDescription("Consumo anual").setRequired(true).setMinValue(0))),
-  new SlashCommandBuilder().setName("economia").setDescription("Configura os parâmetros econômicos")
-    .addSubcommand(s => s.setName("configurar").setDescription("Define renda anual e limites financeiros")
-      .addStringOption(o => o.setName("pais").setDescription("Nação").setRequired(true).setMaxLength(80))
-      .addNumberOption(o => o.setName("renda_anual").setDescription("Renda anual-base").setRequired(true).setMinValue(0))
-      .addNumberOption(o => o.setName("limite_divida").setDescription("Dívida máxima").setRequired(true).setMinValue(0))),
-  new SlashCommandBuilder().setName("renda").setDescription("Registra rendimentos e despesas")
-    .addSubcommand(s => s.setName("adicionar").setDescription("Registra um rendimento ou despesa")
-      .addStringOption(o => o.setName("pais").setDescription("Nação").setRequired(true).setMaxLength(80))
-      .addNumberOption(o => o.setName("valor").setDescription("Valor positivo = renda; negativo = despesa").setRequired(true))
-      .addStringOption(o => o.setName("motivo").setDescription("Motivo").setRequired(true).setMaxLength(200))),
-  new SlashCommandBuilder().setName("saldo").setDescription("Consulta o saldo da nação")
-    .addStringOption(o => o.setName("pais").setDescription("Nação (opcional se controlar apenas uma)").setRequired(false).setMaxLength(80)),
+    .addSubcommand(s => s.setName("deletar-item").setDescription("Apaga definitivamente um item do catálogo")
+      .addStringOption(o => o.setName("item").setDescription("Item a apagar").setRequired(true).setMaxLength(80).setAutocomplete(true)))
+    .addSubcommandGroup(g => g.setName("pais").setDescription("Altera dados de inventário de uma nação")
+      .pipe(group => inventorySubcommand(group, "estoque", "Altera o estoque de um item"))
+      .pipe(group => inventorySubcommand(group, "producao", "Altera a produção anual de um item"))
+      .pipe(group => inventorySubcommand(group, "consumo", "Altera o consumo anual de um item"))),
+  new SlashCommandBuilder().setName("economia").setDescription("Administra as finanças das nações")
+    .addSubcommandGroup(g => g.setName("pais").setDescription("Altera os valores financeiros de uma nação")
+      .pipe(group => economySubcommand(group, "renda", "Altera a renda anual"))
+      .pipe(group => economySubcommand(group, "gastos", "Altera os gastos anuais"))
+      .pipe(group => economySubcommand(group, "dinheiro", "Altera o tesouro disponível"))),
+  new SlashCommandBuilder().setName("saldo").setDescription("Consulta o resumo financeiro de uma nação")
+    .addStringOption(o => o.setName("pais").setDescription("Nação (opcional se controlar apenas uma)").setRequired(false).setMaxLength(80).setAutocomplete(true)),
   new SlashCommandBuilder().setName("ajuda").setDescription("Mostra os comandos disponíveis"),
   new SlashCommandBuilder().setName("ping").setDescription("Verifica a conexão do bot"),
 ].map(command => command.toJSON());
