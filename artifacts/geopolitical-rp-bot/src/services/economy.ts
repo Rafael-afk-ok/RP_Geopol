@@ -252,3 +252,36 @@ export function transferBetweenCountries(
     return group;
   });
 }
+
+
+export function adjustAnnualFinance(
+  db: Database.Database,
+  guildId: string,
+  actorId: string,
+  countryId: number,
+  field: "income" | "expenses",
+  operation: "add" | "rem" | "set",
+  amount: number,
+  reason: string,
+): { previous: number; next: number } {
+  requireNarratorPermission(db, guildId, actorId, "economy", "edit");
+  amount = roundCurrency(db, guildId, amount);
+  assertDomain(Number.isFinite(amount) && amount >= 0, "O valor precisa ser finito e não negativo.");
+  assertDomain(operation === "set" || amount > 0, "Add/rem precisam ser maiores que zero.");
+  assertDomain(reason.trim().length > 0 && reason.length <= 200, "Informe um motivo de até 200 caracteres.");
+  return inTransaction(db, () => {
+    const column = field === "income" ? "annual_income" : "annual_expenses";
+    const country = db.prepare(`SELECT ${column} AS value FROM countries WHERE id = ? AND guild_id = ? AND status = 'active'`)
+      .get(countryId, guildId) as { value: number } | undefined;
+    assertDomain(country, "País não encontrado ou arquivado.");
+    const next = operation === "add" ? country.value + amount : operation === "rem" ? country.value - amount : amount;
+    assertDomain(Number.isFinite(next) && next >= 0, "Renda e gastos anuais não podem ficar negativos.");
+    if (next !== country.value) {
+      db.prepare(`UPDATE countries SET ${column} = ? WHERE id = ? AND guild_id = ?`).run(next, countryId, guildId);
+      audit(db, guildId, actorId, "adjust_annual_finance", "country", countryId, {
+        field, operation, previous: country.value, next, reason: reason.trim(),
+      });
+    }
+    return { previous: country.value, next };
+  });
+}
