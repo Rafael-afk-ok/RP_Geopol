@@ -9,7 +9,7 @@ import { DomainError, assertDomain } from "../domain/errors.js";
 import { audit } from "../services/audit.js";
 import { ensureDefaultCatalog, adjustInventory, defineItem, deleteItem, listCountryInventory, setCountryProduction, type ItemInput } from "../services/inventory.js";
 import { createCountry, deleteCountry, listAccessibleCountries, listNarratedCountries } from "../services/countries.js";
-import { adjustBalance, roundCurrency } from "../services/economy.js";
+import { adjustAnnualFinance, adjustBalance, roundCurrency } from "../services/economy.js";
 import {
   associatePlayer, bootstrapMainNarrator, grantNarratorPermission, isMainNarrator,
   removePlayer, revokeNarratorPermission, hasNarratorPermission,
@@ -176,17 +176,20 @@ const handlers: Record<string,Handler> = {
     const reason=i.options.getString("motivo",true);
     assertDomain(Number.isFinite(value)&&(operation==="set"?value>=0:value>0),"Informe um valor válido. Add/rem precisam ser maiores que zero.");
     const rounded=roundCurrency(db,guildId(i),value);
-    const column=sub==="renda"?"annual_income":sub==="gastos"?"annual_expenses":"treasury";
-    const row=db.prepare(`SELECT ${column} AS current FROM countries WHERE id=? AND guild_id=? AND status='active'`).get(country.id,guildId(i)) as {current:number};
-    const current=row.current;
-    const next=operation==="add"?current+rounded:operation==="rem"?current-rounded:rounded;
-    assertDomain(Number.isFinite(next)&&next>=0||sub==="dinheiro"&&Number.isFinite(next)&&next>=-country.debt_limit,"O valor resultante não pode ser negativo nem ultrapassar o limite de dívida.");
+    let current:number;
+    let next:number;
     if(sub==="dinheiro"){
+      const row=db.prepare("SELECT treasury FROM countries WHERE id=? AND guild_id=? AND status='active'").get(country.id,guildId(i)) as {treasury:number}|undefined;
+      assertDomain(row,"País não encontrado ou arquivado.");
+      current=row.treasury;
+      next=operation==="add"?current+rounded:operation==="rem"?current-rounded:rounded;
+      assertDomain(Number.isFinite(next)&&next>=-country.debt_limit,"A operação ultrapassa o limite de dívida.");
       const delta=next-current;
       if(delta!==0)adjustBalance(db,country.id,guildId(i),i.user.id,delta,"narrator_treasury_adjustment",reason);
-    }else if(next!==current){
-      db.prepare(`UPDATE countries SET ${column}=? WHERE id=? AND guild_id=? AND status='active'`).run(next,country.id,guildId(i));
-      audit(db,guildId(i),i.user.id,"adjust_annual_finance","country",country.id,{type:sub,operation,value:next-current,reason});
+    }else{
+      const result=adjustAnnualFinance(db,guildId(i),i.user.id,country.id,sub==="renda"?"income":"expenses",operation,value,reason);
+      current=result.previous;
+      next=result.next;
     }
     const label=sub==="renda"?"renda anual":sub==="gastos"?"gastos anuais":"tesouro";
     await i.editReply(`${label.charAt(0).toUpperCase()+label.slice(1)} de **${country.name}** atualizado: **${fmt(current)} → ${fmt(next)}**.`);
