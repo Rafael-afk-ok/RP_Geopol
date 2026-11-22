@@ -80,3 +80,24 @@ test("signed narrator adjustments update the treasury and current-year ledger im
     closeTestDatabase(db);
   }
 });
+
+
+test("annual income and expenses are independent of treasury and support add/rem/set", async () => {
+  const { adjustAnnualFinance } = await import("../src/services/economy.js");
+  const db = createTestDatabase();
+  try {
+    const countryId = insertCountry(db, { name: "Annual Finance", treasury: 250, annualIncome: 100 });
+    assert.deepEqual(adjustAnnualFinance(db, "guild", "narrator", countryId, "income", "add", 50, "New tax revenue"), { previous: 100, next: 150 });
+    assert.deepEqual(adjustAnnualFinance(db, "guild", "narrator", countryId, "income", "rem", 20, "Tax reduction"), { previous: 150, next: 130 });
+    assert.deepEqual(adjustAnnualFinance(db, "guild", "narrator", countryId, "income", "set", 200, "Budget revision"), { previous: 130, next: 200 });
+    assert.deepEqual(adjustAnnualFinance(db, "guild", "narrator", countryId, "expenses", "add", 80, "Administration"), { previous: 0, next: 80 });
+    assert.deepEqual(adjustAnnualFinance(db, "guild", "narrator", countryId, "expenses", "rem", 30, "Cost reduction"), { previous: 80, next: 50 });
+    assert.deepEqual(adjustAnnualFinance(db, "guild", "narrator", countryId, "expenses", "set", 75, "Revised budget"), { previous: 50, next: 75 });
+    const country = db.prepare("SELECT treasury, annual_income, annual_expenses FROM countries WHERE id = ?").get(countryId) as { treasury: number; annual_income: number; annual_expenses: number };
+    assert.deepEqual(country, { treasury: 250, annual_income: 200, annual_expenses: 75 });
+    assert.throws(() => adjustAnnualFinance(db, "guild", "narrator", countryId, "expenses", "rem", 100, "Invalid reduction"), /não podem ficar negativos/);
+    assert.throws(() => adjustAnnualFinance(db, "guild", "player", countryId, "income", "add", 10, "Unauthorized"), /permissão de narrador/);
+  } finally {
+    closeTestDatabase(db);
+  }
+});

@@ -363,3 +363,37 @@ export function setItemProductionEnabled(
   assertDomain(result.changes > 0, "Item não encontrado neste servidor.");
   audit(db, guildId, actorId, "set_item_production_enabled", "item", itemId, { enabled });
 }
+
+
+/** Permanently removes a catalog item and every record that depends on it. */
+export function deleteItem(db: Database.Database, guildId: string, actorId: string, itemId: number): string {
+  requireNarratorPermission(db, guildId, actorId, "inventory", "create");
+  return inTransaction(db, () => {
+    const item = db.prepare("SELECT id, name FROM items WHERE id = ? AND guild_id = ?")
+      .get(itemId, guildId) as { id: number; name: string } | undefined;
+    assertDomain(item, "Item não encontrado neste servidor.");
+
+    // Remove leaf records first to respect the legacy foreign-key relationships.
+    db.prepare("DELETE FROM international_trade_history WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM player_market_trades WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM production_order_materials WHERE item_id = ? OR order_id IN (SELECT id FROM production_orders WHERE item_id = ?)").run(itemId, itemId);
+    db.prepare("DELETE FROM item_requirements WHERE item_id = ? OR material_item_id = ?").run(itemId, itemId);
+    db.prepare("DELETE FROM trade_restrictions WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM trade_contracts WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM player_offers WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM production_orders WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM global_market_trades WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM global_price_history WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM global_stock WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM global_consumption_rules WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM country_consumption_rules WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM army_equipment_assignments WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM country_inventory WHERE item_id = ?").run(itemId);
+    db.prepare("DELETE FROM country_production WHERE item_id = ?").run(itemId);
+
+    const removed = db.prepare("DELETE FROM items WHERE id = ? AND guild_id = ?").run(itemId, guildId);
+    assertDomain(removed.changes === 1, "Não foi possível apagar o item.");
+    audit(db, guildId, actorId, "delete_item", "item", itemId, { name: item.name, permanent: true });
+    return item.name;
+  });
+}
