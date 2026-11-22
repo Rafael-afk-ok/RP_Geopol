@@ -1,14 +1,15 @@
 import {
   EmbedBuilder,
   PermissionFlagsBits,
+  type AutocompleteInteraction,
   type ChatInputCommandInteraction,
 } from "discord.js";
 import type Database from "better-sqlite3";
 import { DomainError, assertDomain } from "../domain/errors.js";
-import { ensureDefaultCatalog } from "../services/inventory.js";
-import { createCountry, listAccessibleCountries, listNarratedCountries } from "../services/countries.js";
-import { adjustBalance, configureCountryEconomy } from "../services/economy.js";
-import { adjustInventory, defineItem, listCountryInventory, setCountryProduction, type ItemInput } from "../services/inventory.js";
+import { audit } from "../services/audit.js";
+import { ensureDefaultCatalog, adjustInventory, defineItem, deleteItem, listCountryInventory, setCountryProduction, type ItemInput } from "../services/inventory.js";
+import { createCountry, deleteCountry, listAccessibleCountries, listNarratedCountries } from "../services/countries.js";
+import { adjustBalance, roundCurrency } from "../services/economy.js";
 import {
   associatePlayer, bootstrapMainNarrator, grantNarratorPermission, isMainNarrator,
   removePlayer, revokeNarratorPermission, hasNarratorPermission,
@@ -25,10 +26,10 @@ const countryByName = (db: Database.Database, i: ChatInputCommandInteraction, na
   const g = guildId(i);
   const canSeeAll = hasNarratorPermission(db, g, i.user.id, "countries", "read");
   const row = canSeeAll
-    ? db.prepare("SELECT id,name,treasury,annual_income,debt_limit FROM countries WHERE guild_id=? AND status='active' AND lower(name)=lower(?)").get(g,name)
-    : db.prepare("SELECT c.id,c.name,c.treasury,c.annual_income,c.debt_limit FROM countries c JOIN country_memberships m ON m.country_id=c.id WHERE c.guild_id=? AND c.status='active' AND lower(c.name)=lower(?) AND m.user_id=?").get(g,name,i.user.id);
+    ? db.prepare("SELECT id,name,treasury,annual_income,annual_expenses,debt_limit FROM countries WHERE guild_id=? AND status='active' AND lower(name)=lower(?)").get(g,name)
+    : db.prepare("SELECT c.id,c.name,c.treasury,c.annual_income,c.annual_expenses,c.debt_limit FROM countries c JOIN country_memberships m ON m.country_id=c.id WHERE c.guild_id=? AND c.status='active' AND lower(c.name)=lower(?) AND m.user_id=?").get(g,name,i.user.id);
   assertDomain(row, "Nação não encontrada ou sem acesso.");
-  return row as {id:number;name:string;treasury:number;annual_income:number;debt_limit:number};
+  return row as {id:number;name:string;treasury:number;annual_income:number;annual_expenses:number;debt_limit:number};
 };
 const ownCountry = (db: Database.Database, i: ChatInputCommandInteraction, name?: string) => {
   if (name) return countryByName(db,i,name);
@@ -36,14 +37,15 @@ const ownCountry = (db: Database.Database, i: ChatInputCommandInteraction, name?
   assertDomain(rows.length>0,"Você não está associado a uma nação.");
   assertDomain(rows.length===1,"Você está associado a mais de uma nação. Informe o parâmetro pais.");
   const c=rows[0]!;
-  return {id:c.id,name:c.name,treasury:c.treasury,annual_income:c.annual_income,debt_limit:c.debt_limit};
+  return {id:c.id,name:c.name,treasury:c.treasury,annual_income:c.annual_income,annual_expenses:(c as typeof c & {annual_expenses:number}).annual_expenses??0,debt_limit:c.debt_limit};
 };
 const itemByName = (db: Database.Database, i: ChatInputCommandInteraction, name: string) => {
   const row=db.prepare("SELECT id FROM items WHERE guild_id=? AND lower(name)=lower(?)").get(guildId(i),name) as {id:number}|undefined;
-  assertDomain(row,"Recurso não encontrado.");
+  assertDomain(row,"Item não encontrado.");
   return row.id;
 };
 const fmt=(n:number)=>new Intl.NumberFormat("pt-BR",{maximumFractionDigits:2}).format(n);
+
 const handlers: Record<string,Handler> = {
   configurar: async(i,db)=>{
     assertDomain(i.options.getSubcommand()==="principal" && i.guild,"Subcomando inválido.");
@@ -73,7 +75,12 @@ const handlers: Record<string,Handler> = {
       await i.editReply(rows.length?rows.map(c=>`• **${c.name}**`).join("\n"):"Nenhuma nação encontrada.");
     } else {
       const c=countryByName(db,i,i.options.getString("pais",true));
-      await i.editReply(`**${c.name}**\nTesouro: ${fmt(c.treasury)}\nRenda anual: ${fmt(c.annual_income)}\nLimite de dívida: ${fmt(c.debt_limit)}`);
+      if(sub==="deletar"){
+        const deleted=deleteCountry(db,g,i.user.id,c.id);
+        await i.editReply(`A nação **${deleted}** e todos os seus registros vinculados foram apagados definitivamente.`);
+      } else {
+        await i.editReply(`**${c.name}**\nTesouro: ${fmt(c.treasury)}\nRenda anual: ${fmt(c.annual_income)}\nGastos anuais: ${fmt(c.annual_expenses)}\nLimite de dívida: ${fmt(c.debt_limit)}`);
+      }
     }
   },
   jogador: async(i,db)=>{
@@ -97,53 +104,134 @@ const handlers: Record<string,Handler> = {
       const unit=i.options.getString("unidade",true);
       const input:ItemInput={name,category,description:"",properties:{unit},productionCost:0,annualMaintenance:0,productionYears:0,maxParallelOrders:1,isFood:false,globalTradeable:false};
       defineItem(db,g,i.user.id,input);
-      await i.editReply(`Recurso **${name}** cadastrado.`);
-    } else if(sub==="painel"){
+      await i.editReply(`Item **${name}** cadastrado.`);
+      return;
+    }
+    if(sub==="deletar-item"){
+      narrator(db,i,"inventory","create");
+      const itemId=itemByName(db,i,i.options.getString("item",true));
+      const name=deleteItem(db,g,i.user.id,itemId);
+      await i.editReply(`O item **${name}** e seus registros vinculados foram apagados definitivamente.`);
+      return;
+    }
+    if(sub==="painel"){
       ensureDefaultCatalog(db,g,i.user.id);
       const c=ownCountry(db,i,i.options.getString("pais")??undefined);
       const rows=listCountryInventory(db,g,i.user.id,c.id);
-      const lines=rows.map(r=>`**${r.name}** — estoque: ${fmt(r.quantity)} ${r.unit??""} · produção anual: +${fmt(r.annual_production)} · consumo anual: −${fmt(r.annual_consumption)} · saldo projetado: ${fmt(r.annual_production-r.annual_consumption)}`);
-      const embed=new EmbedBuilder().setTitle(`Inventário · ${c.name}`).setDescription(lines.join("\n").slice(0,4000)||"Nenhum recurso cadastrado.").setColor(0x315e56);
+      const groups=new Map<string,string[]>();
+      for(const row of rows){
+        const line=`• **${row.name}** — ${fmt(row.quantity)} ${row.unit??""} | Prod. ${fmt(row.annual_production)} | Cons. ${fmt(row.annual_consumption)} | Δ ${row.annual_production-row.annual_consumption>=0?"+":""}${fmt(row.annual_production-row.annual_consumption)}`;
+        const bucket=groups.get(row.category)??[];bucket.push(line);groups.set(row.category,bucket);
+      }
+      const embed=new EmbedBuilder().setTitle(`INVENTÁRIO NACIONAL · ${c.name}`)
+        .setDescription("**ESTOQUE** · **PRODUÇÃO ANUAL** · **CONSUMO ANUAL** · **SALDO ANUAL**")
+        .setColor(0x263746).setFooter({text:`${rows.length} itens cadastrados · Valores anuais`});
+      for(const category of ["Recursos naturais","Indústria e bens","Militar"]){
+        const lines=groups.get(category)??[];
+        if(!lines.length)continue;
+        let value=lines.join("\n");
+        if(value.length>1024){let kept="";let count=0;for(const line of lines){if((kept?kept+"\n":"").length+line.length>930)break;kept+=(kept?"\n":"")+line;count++;}value=kept+`\n… e mais ${lines.length-count} itens.`;}
+        embed.addFields({name:category.toUpperCase(),value:value||"Nenhum item."});
+      }
+      if(!rows.length)embed.addFields({name:"INVENTÁRIO VAZIO",value:"Nenhum recurso cadastrado."});
       await i.editReply({embeds:[embed]});
-    } else if(sub==="ajustar"){
-      narrator(db,i,"inventory","edit");
-      const c=countryByName(db,i,i.options.getString("pais",true));
-      const item=itemByName(db,i,i.options.getString("item",true));
-      const delta=i.options.getNumber("variacao",true);
-      adjustInventory(db,g,i.user.id,c.id,item,delta,i.options.getString("motivo",true));
-      await i.editReply(`Estoque de **${c.name}** atualizado em ${delta>0?"+":""}${fmt(delta)}.`);
-    } else {
-      narrator(db,i,"production","configure");
-      const c=countryByName(db,i,i.options.getString("pais",true));
-      const item=itemByName(db,i,i.options.getString("item",true));
-      setCountryProduction(db,g,i.user.id,c.id,item,i.options.getNumber("produz",true),i.options.getNumber("consome",true));
-      await i.editReply(`Produção e consumo anuais de **${i.options.getString("item",true)}** atualizados para **${c.name}**.`);
+      return;
     }
+
+    const group=i.options.getSubcommandGroup();
+    assertDomain(group==="pais","Categoria de inventário inválida.");
+    const subType=sub as "estoque"|"producao"|"consumo";
+    narrator(db,i,subType==="estoque"?"inventory":"production",subType==="estoque"?"edit":"configure");
+    const country=countryByName(db,i,i.options.getString("nacao",true));
+    const itemId=itemByName(db,i,i.options.getString("item",true));
+    const operation=i.options.getString("operacao",true) as "add"|"rem"|"set";
+    const value=i.options.getNumber("valor",true);
+    const reason=i.options.getString("motivo",true);
+    assertDomain(Number.isFinite(value)&&(operation==="set"?value>=0:value>0),"Informe um valor válido. Add/rem precisam ser maiores que zero.");
+    if(subType==="estoque"){
+      const row=db.prepare("SELECT quantity FROM country_inventory WHERE country_id=? AND item_id=?").get(country.id,itemId) as {quantity:number}|undefined;
+      const current=row?.quantity??0;
+      const next=operation==="add"?current+value:operation==="rem"?current-value:value;
+      assertDomain(next>=0,"O estoque não pode ficar negativo.");
+      if(next!==current)adjustInventory(db,g,i.user.id,country.id,itemId,next-current,reason);
+      await i.editReply(`Estoque de **${country.name}** atualizado: **${fmt(current)} → ${fmt(next)}**.`);
+      return;
+    }
+    const row=db.prepare("SELECT annual_production,annual_consumption FROM country_production WHERE country_id=? AND item_id=?").get(country.id,itemId) as {annual_production:number;annual_consumption:number}|undefined;
+    const production=row?.annual_production??0,consumption=row?.annual_consumption??0;
+    const current=subType==="producao"?production:consumption;
+    const next=operation==="add"?current+value:operation==="rem"?current-value:value;
+    assertDomain(next>=0,"Produção e consumo não podem ficar negativos.");
+    if(next!==current)setCountryProduction(db,g,i.user.id,country.id,itemId,subType==="producao"?next:production,subType==="consumo"?next:consumption);
+    audit(db,g,i.user.id,"adjust_inventory_flow","production",`${country.id}:${itemId}`,{type:subType,operation,value:next-current,reason});
+    await i.editReply(`${subType==="producao"?"Produção anual":"Consumo anual"} de **${country.name}** atualizado: **${fmt(current)} → ${fmt(next)}**.`);
   },
   economia: async(i,db)=>{
-    narrator(db,i,"economy","configure");
-    const c=countryByName(db,i,i.options.getString("pais",true));
-    configureCountryEconomy(db,guildId(i),i.user.id,c.id,{annualIncome:i.options.getNumber("renda_anual",true),debtLimit:i.options.getNumber("limite_divida",true),maxMoney:null});
-    await i.editReply(`Parâmetros financeiros de **${c.name}** atualizados.`);
-  },
-  renda: async(i,db)=>{
+    assertDomain(i.options.getSubcommandGroup()==="pais","Grupo econômico inválido.");
+    const sub=i.options.getSubcommand() as "renda"|"gastos"|"dinheiro";
     narrator(db,i,"economy","edit");
-    const c=countryByName(db,i,i.options.getString("pais",true));
-    const amount=i.options.getNumber("valor",true);
-    assertDomain(amount!==0,"O valor precisa ser diferente de zero.");
-    adjustBalance(db,c.id,guildId(i),i.user.id,amount,amount>0?"income":"expense",i.options.getString("motivo",true));
-    await i.editReply(`${amount>0?"Rendimento":"Despesa"} registrado em **${c.name}**: ${amount>0?"+":"−"} ${fmt(Math.abs(amount))}.`);
+    const country=countryByName(db,i,i.options.getString("nacao",true));
+    const operation=i.options.getString("operacao",true) as "add"|"rem"|"set";
+    const value=i.options.getNumber("valor",true);
+    const reason=i.options.getString("motivo",true);
+    assertDomain(Number.isFinite(value)&&(operation==="set"?value>=0:value>0),"Informe um valor válido. Add/rem precisam ser maiores que zero.");
+    const rounded=roundCurrency(db,guildId(i),value);
+    const column=sub==="renda"?"annual_income":sub==="gastos"?"annual_expenses":"treasury";
+    const row=db.prepare(`SELECT ${column} AS current FROM countries WHERE id=? AND guild_id=? AND status='active'`).get(country.id,guildId(i)) as {current:number};
+    const current=row.current;
+    const next=operation==="add"?current+rounded:operation==="rem"?current-rounded:rounded;
+    assertDomain(Number.isFinite(next)&&next>=0||sub==="dinheiro"&&Number.isFinite(next)&&next>=-country.debt_limit,"O valor resultante não pode ser negativo nem ultrapassar o limite de dívida.");
+    if(sub==="dinheiro"){
+      const delta=next-current;
+      if(delta!==0)adjustBalance(db,country.id,guildId(i),i.user.id,delta,"narrator_treasury_adjustment",reason);
+    }else if(next!==current){
+      db.prepare(`UPDATE countries SET ${column}=? WHERE id=? AND guild_id=? AND status='active'`).run(next,country.id,guildId(i));
+      audit(db,guildId(i),i.user.id,"adjust_annual_finance","country",country.id,{type:sub,operation,value:next-current,reason});
+    }
+    const label=sub==="renda"?"renda anual":sub==="gastos"?"gastos anuais":"tesouro";
+    await i.editReply(`${label.charAt(0).toUpperCase()+label.slice(1)} de **${country.name}** atualizado: **${fmt(current)} → ${fmt(next)}**.`);
   },
   saldo: async(i,db)=>{
     const c=ownCountry(db,i,i.options.getString("pais")??undefined);
-    const settings=db.prepare("SELECT currency_name,currency_symbol,current_year FROM guild_settings WHERE guild_id=?").get(guildId(i)) as {currency_name:string;currency_symbol:string;current_year:number};
-    await i.editReply(`**${c.name}**\nTesouro: **${settings.currency_symbol} ${fmt(c.treasury)}**\nRenda anual-base: ${settings.currency_symbol} ${fmt(c.annual_income)}\nLimite de dívida: ${settings.currency_symbol} ${fmt(c.debt_limit)}`);
+    const settings=db.prepare("SELECT currency_symbol FROM guild_settings WHERE guild_id=?").get(guildId(i)) as {currency_symbol:string};
+    const symbol=settings.currency_symbol;
+    const net=c.annual_income-c.annual_expenses;
+    const embed=new EmbedBuilder().setTitle(`RESUMO FINANCEIRO · ${c.name}`).setColor(0x263746)
+      .addFields(
+        {name:"TESOURO DISPONÍVEL",value:`${symbol} ${fmt(c.treasury)}`,inline:true},
+        {name:"RENDA ANUAL",value:`${symbol} ${fmt(c.annual_income)}`,inline:true},
+        {name:"GASTOS ANUAIS",value:`${symbol} ${fmt(c.annual_expenses)}`,inline:true},
+        {name:"RESULTADO ANUAL",value:`${net>=0?"+":"−"} ${symbol} ${fmt(Math.abs(net))}`,inline:true},
+        {name:"LIMITE DE DÍVIDA",value:`${symbol} ${fmt(c.debt_limit)}`,inline:true}
+      ).setFooter({text:"Renda e gastos são parâmetros anuais; o tesouro só muda por lançamentos de dinheiro."});
+    await i.editReply({embeds:[embed]});
   },
   ajuda: async(i)=>{
-    await i.editReply({embeds:[new EmbedBuilder().setTitle("Bot de RP Geopolítico").setDescription("Sistemas ativos: nações, inventário, renda e narradores.\n\nConfigure o Narrador Supremo com /configurar principal. Depois crie nações com /pais criar, associe jogadores com /jogador associar, cadastre recursos com /inventario criar-item e configure saldo e renda.") ]});
+    await i.editReply({embeds:[new EmbedBuilder().setTitle("Bot de RP Geopolítico").setDescription("Sistemas ativos: nações, inventário, economia e narradores.\n\nNações: /pais criar, /pais listar, /pais ver e /pais deletar.\nInventário: /inventario painel, /inventario criar-item, /inventario deletar-item e /inventario pais.\nEconomia: /economia pais renda, /economia pais gastos e /economia pais dinheiro.\nConsulta: /saldo.\nNarradores: /configurar principal, /narrador adicionar e /narrador remover.") ]});
   },
   ping: async(i)=>{await i.editReply(`Pong · ${i.client.ws.ping} ms`);},
 };
+
+export async function handleAutocomplete(i:AutocompleteInteraction,db:Database.Database):Promise<void>{
+  if(!i.guildId){await i.respond([]);return;}
+  const focused=i.options.getFocused(true);
+  const query=String(focused.value??"").trim().toLocaleLowerCase("pt-BR");
+  if(focused.name==="pais"||focused.name==="nacao"){
+    const canSeeAll=hasNarratorPermission(db,i.guildId,i.user.id,"countries","read");
+    const rows=canSeeAll
+      ?db.prepare("SELECT name FROM countries WHERE guild_id=? AND status='active' AND lower(name) LIKE ? ORDER BY name COLLATE NOCASE LIMIT 25").all(i.guildId,`%${query}%`)
+      :db.prepare("SELECT c.name FROM countries c JOIN country_memberships m ON m.country_id=c.id WHERE c.guild_id=? AND c.status='active' AND m.user_id=? AND lower(c.name) LIKE ? ORDER BY c.name COLLATE NOCASE LIMIT 25").all(i.guildId,i.user.id,`%${query}%`);
+    await i.respond((rows as Array<{name:string}>).map(row=>({name:row.name,value:row.name})));
+    return;
+  }
+  if(focused.name==="item"){
+    const rows=db.prepare("SELECT name FROM items WHERE guild_id=? AND lower(name) LIKE ? ORDER BY name COLLATE NOCASE LIMIT 25").all(i.guildId,`%${query}%`) as Array<{name:string}>;
+    await i.respond(rows.map(row=>({name:row.name,value:row.name})));
+    return;
+  }
+  await i.respond([]);
+}
+
 export async function handleCommand(i:ChatInputCommandInteraction,db:Database.Database):Promise<void>{
   const handler=handlers[i.commandName];
   if(!handler) throw new DomainError("Comando não reconhecido.");
