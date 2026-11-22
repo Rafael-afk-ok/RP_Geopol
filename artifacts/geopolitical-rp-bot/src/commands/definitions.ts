@@ -66,15 +66,21 @@ export const commandBuilders = [
       .addStringOption(o => o.setName("unidade").setDescription("Unidade de medida").setRequired(true).setMaxLength(20)))
     .addSubcommand(s => s.setName("deletar-item").setDescription("Apaga definitivamente um item do catálogo")
       .addStringOption(o => o.setName("item").setDescription("Item a apagar").setRequired(true).setMaxLength(80).setAutocomplete(true)))
-    .addSubcommandGroup(g => g.setName("pais").setDescription("Altera dados de inventário de uma nação")
-      .pipe(group => inventorySubcommand(group, "estoque", "Altera o estoque de um item"))
-      .pipe(group => inventorySubcommand(group, "producao", "Altera a produção anual de um item"))
-      .pipe(group => inventorySubcommand(group, "consumo", "Altera o consumo anual de um item"))),
+    .addSubcommandGroup(g => {
+      g.setName("pais").setDescription("Altera dados de inventário de uma nação");
+      inventorySubcommand(g, "estoque", "Altera o estoque de um item");
+      inventorySubcommand(g, "producao", "Altera a produção anual de um item");
+      inventorySubcommand(g, "consumo", "Altera o consumo anual de um item");
+      return g;
+    }),
   new SlashCommandBuilder().setName("economia").setDescription("Administra as finanças das nações")
-    .addSubcommandGroup(g => g.setName("pais").setDescription("Altera os valores financeiros de uma nação")
-      .pipe(group => economySubcommand(group, "renda", "Altera a renda anual"))
-      .pipe(group => economySubcommand(group, "gastos", "Altera os gastos anuais"))
-      .pipe(group => economySubcommand(group, "dinheiro", "Altera o tesouro disponível"))),
+    .addSubcommandGroup(g => {
+      g.setName("pais").setDescription("Altera os valores financeiros de uma nação");
+      economySubcommand(g, "renda", "Altera a renda anual");
+      economySubcommand(g, "gastos", "Altera os gastos anuais");
+      economySubcommand(g, "dinheiro", "Altera o tesouro disponível");
+      return g;
+    }),
   new SlashCommandBuilder().setName("saldo").setDescription("Consulta o resumo financeiro de uma nação")
     .addStringOption(o => o.setName("pais").setDescription("Nação (opcional se controlar apenas uma)").setRequired(false).setMaxLength(80).setAutocomplete(true)),
   new SlashCommandBuilder().setName("ajuda").setDescription("Mostra os comandos disponíveis"),
