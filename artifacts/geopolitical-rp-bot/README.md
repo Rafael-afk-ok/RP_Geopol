@@ -1,43 +1,71 @@
 # Bot de RP Geopolítico
 
-Bot de Discord para roleplay geopolítico. Usa `discord.js`, TypeScript e SQLite; não inclui IA nem simulador militar.
+Versão reduzida do bot. Os únicos sistemas ativos são **nações, inventário, renda e narradores**. Mercado, comércio, fabricação, população, turnos anuais, inflação, tarifas, acordos e sistemas militares avançados não fazem parte da versão ativa.
 
-## Pré-requisitos
+## Requisitos e inicialização
 
-- Node.js 24 e pnpm (já disponíveis neste projeto).
-- Uma aplicação e usuário de bot criados no [Discord Developer Portal](https://discord.com/developers/applications).
-- O bot precisa ser instalado no servidor com os escopos `bot` e `applications.commands`.
-- Salve o token do usuário de bot no Replit Secrets com o nome `DISCORD_BOT_TOKEN`. Copie-o em **Developer Portal → Applications → sua aplicação → Bot**; use o token do bot sem o prefixo `Bot `. Não use o Client Secret nem um token OAuth. Nunca o coloque em `.env`, no Git ou em mensagens.
+- Node.js 24 e pnpm.
+- Aplicação e usuário de bot no Discord Developer Portal.
+- Instale o bot no servidor com os escopos `bot` e `applications.commands`.
+- Configure o secret `DISCORD_BOT_TOKEN`. Nunca coloque o token no Git ou em mensagens.
+- Opcional: `DISCORD_GUILD_ID` registra comandos apenas em um servidor durante testes.
+- Opcional: `DATABASE_PATH` define o caminho do banco SQLite.
 
-Permissões Discord recomendadas: `View Channels`, `Send Messages` e `Embed Links`. O bot não precisa de permissões administrativas para responder a comandos.
-
-## Iniciar
-
-O workflow **Bot Discord RP** executa:
+Comando de inicialização:
 
 ```sh
 pnpm --filter @workspace/geopolitical-rp-bot run dev
 ```
 
-Para executar manualmente:
+O banco é criado automaticamente em `data/game.sqlite`, relativo ao diretório do pacote. Migrações SQL são aplicadas na inicialização.
 
-```sh
-pnpm --filter @workspace/geopolitical-rp-bot run dev
-```
+## Configuração inicial
 
-Ao conectar, o bot registra seus comandos de barra automaticamente. Por padrão, o registro é global e pode demorar para aparecer no Discord. Para atualizações imediatas durante configuração, defina `DISCORD_GUILD_ID` com o ID do servidor: os comandos serão registrados apenas nele.
+1. Execute `/configurar principal`. O proprietário ou administrador do servidor pode definir o Narrador Supremo.
+2. O Narrador Supremo nomeia outros narradores com `/narrador adicionar` e remove com `/narrador remover`.
+3. O Narrador cria uma nação com `/pais criar`, vinculando-a a um cargo do Discord.
+4. Associe jogadores com `/jogador associar`. Membros com o cargo vinculado também recebem associação automática ao interagir com o bot.
 
-O primeiro passo dentro do servidor é executar `/configurar principal`. O proprietário ou um administrador do servidor pode reivindicar essa configuração inicial. Se `DISCORD_OWNER_ID` estiver definido, essa conta também será autorizada; administradores do servidor continuam autorizados.
+Narradores possuem acesso administrativo completo. Jogadores acessam apenas as nações às quais estão associados.
 
-## Banco de dados
+## Comandos ativos
 
-O banco SQLite é criado automaticamente no diretório do pacote:
+### Nações
+- `/pais criar`: cria uma nação e vincula um cargo.
+- `/pais listar`: lista as nações acessíveis; narradores podem listar todas.
+- `/pais ver`: consulta tesouro, renda anual e limite de dívida.
+- `/jogador associar` e `/jogador remover`: gerenciam associações.
+- `/jogador meus-paises`: lista as nações do jogador.
 
-```text
-artifacts/geopolitical-rp-bot/data/game.sqlite
-```
+### Inventário
+- `/inventario painel`: mostra estoque, produção anual, consumo anual e saldo anual projetado.
+- `/inventario criar-item`: cadastra recursos comuns ou militares com unidade de medida.
+- `/inventario ajustar`: altera estoque, com motivo, apenas por narrador.
+- `/inventario producao`: define produção e consumo anuais por recurso e nação.
+- O catálogo inicial é criado automaticamente quando o painel de inventário é aberto pela primeira vez.
 
-Defina `DATABASE_PATH` para usar outro caminho. Migrações numeradas ficam em `migrations/` e são aplicadas na inicialização. WAL está ativo para durabilidade e acesso seguro. O arquivo de banco, o WAL e o SHM estão ignorados pelo Git; mantenha cópias de segurança fora do repositório.
+### Renda e saldo
+- `/economia configurar`: define renda anual-base e limite de dívida de uma nação.
+- `/renda adicionar`: registra um valor positivo como rendimento ou negativo como despesa. A operação altera o tesouro e gera lançamento no livro-razão.
+- `/saldo`: consulta tesouro, renda anual-base e limite de dívida.
+- Os valores de renda são anuais. Não há cálculo mensal de impostos nesta versão reduzida.
+
+### Narradores
+- `/configurar principal`: configuração inicial do Narrador Supremo.
+- `/narrador adicionar`: nomeia um narrador com acesso administrativo completo.
+- `/narrador remover`: remove as permissões de narrador concedidas.
+
+### Utilitários
+- `/ajuda`: resumo dos sistemas ativos.
+- `/ping`: verifica a conexão.
+
+## Regras de segurança e dados
+
+- Ações administrativas são verificadas no servidor; esconder um comando na interface não é usado como controle de permissão.
+- Valores monetários respeitam a precisão da moeda, o limite de dívida e o limite de saldo configurado no banco.
+- Alterações de estoque não podem produzir quantidades negativas.
+- A associação automática por cargo é sincronizada a cada interação.
+- O SQLite usa WAL. Faça backup do banco antes de qualquer limpeza manual.
 
 ## Verificações
 
@@ -46,27 +74,3 @@ pnpm --filter @workspace/geopolitical-rp-bot run typecheck
 pnpm --filter @workspace/geopolitical-rp-bot run test
 pnpm --filter @workspace/geopolitical-rp-bot run build
 ```
-
-Os testes cobrem limites de dívida e transferências atômicas, permissões de narrador e de país, edição de países, itens personalizados e fluxos financeiros, produção instantânea e temporizada, e avanço/reversão anual.
-
-## Sistemas
-
-- **Países e cargos:** `/pais criar` vincula um país a um cargo Discord. `/pais arquivar` desativa o país e preserva seu histórico; `/pais restaurar` reativa um país arquivado mantendo seu cadastro; `/pais excluir` exige `confirmar:true` e apaga permanentemente os dados específicos daquele país, incluindo histórico financeiro e registros de comércio. A exclusão não pode ser desfeita. O registro de auditoria da exclusão e os fechamentos anuais gerais do servidor são preservados. Quem possui o cargo recebe acesso automaticamente ao usar o bot; a perda do cargo revoga essa associação automática. Os comandos recebem nomes de países, nunca IDs internos.
-- **Reinicialização de dados:** `/dados zerar-pais pais:<nome> confirmar:true` apaga economia, população, inventário, produção, exército, indicadores, contratos, relações, transferências e histórico financeiro de uma nação, mantendo nome, cargo, situação ativa/arquivada e jogadores associados. `/dados zerar-servidor confirmacao:ZERAR SERVIDOR` apaga a campanha inteira, países, itens, categorias, estoques, mercados, relações, contratos e históricos; exige a frase exata `ZERAR SERVIDOR` e só o Narrador Supremo pode executar. Ambos são irreversíveis. Configurações gerais, moeda, hierarquia de narradores e trilha de auditoria são preservadas.
-- **Consumo padrão global:** `/consumo global` consulta os padrões do servidor; informe `item`, `alvo` (população ou exército) e `quantidade_por_unidade` para definir/atualizar um padrão. Países criados depois herdam automaticamente essas regras. `/consumo configurar` altera somente o país indicado; alterações globais futuras não sobrescrevem regras nacionais já existentes.
-- **Hierarquia:** o Narrador Supremo é definido em `/configurar principal` e nomeia/remove narradores com `/narrador adicionar` e `/narrador remover`. Todo narrador nomeado tem acesso administrativo completo. Jogadores têm controle integral dos países aos quais estão associados.
-- **Finanças e impostos:** `/saldo` mostra saldo, ganhos, gastos, resultado anual e comparação percentual. O detalhamento lista cada lançamento. A população gera impostos mensais, lançados em 12 parcelas no fechamento anual: fator 1,0 até 100 milhões; 0,8 entre 100 e 200 milhões; acima de 200 milhões, redução de 0,01 por faixa de 100 mil habitantes até o piso de 0,1. A renda-base e a inflação continuam configuráveis pelo Narrador.
-- **Inventário e produção:** `/inventario painel` abre Recursos naturais, Indústria e bens e Militar. O catálogo inicial possui 18 produtos. `/inventario criar-item` define custo monetário e duração; `/inventario requisito` define os materiais necessários por unidade; o Narrador pode usar `/inventario fabricacao` para impedir a fabricação de itens considerados injustos; `/produzir iniciar` cria uma ordem e desconta materiais e custo; `/produzir fila` consulta ordens; `/produzir cancelar` devolve a parcela configurada dos materiais, mas não o custo monetário.
-- **Produção anual e exportações:** `/inventario producao-anual` define produção, consumo e percentual anual destinado à exportação. No fechamento do ano, a venda é limitada à produção disponível e ao espaço do mercado global. A receita é registrada como rendimento de exportação; o estoque não vendido permanece no país.
-- **Mercado mundial:** `/inventario estoque-global` configura quantidade inicial, preço atual, preço-base, limites, capacidade máxima e reposição anual. O mercado não ultrapassa a capacidade definida. A reposição é aplicada a cada avanço de ano, e as compras/vendas entram no cálculo de oferta e demanda dos preços.
-- **Abastecimento e escassez:** a população consome os itens configurados em `/consumo configurar`. Se faltar qualquer item, o bot tenta comprá-lo do estoque global usando o tesouro; se o dinheiro for insuficiente, só emite a diferença por inflação quando a taxa global estiver acima de zero e o país tiver o financiamento automático habilitado em `/configuracoes pessoais`. Essa preferência pode ser alterada pelos membros do próprio país. Se a compra não puder ser concluída, o déficit permanece; a falta de alimento aumenta a revolta. A fabricação segue a mesma regra para materiais ausentes.
-- **Rankings:** `/ranking` apresenta saldo do tesouro, população, valor estimado da produção anual, valor estimado dos estoques e variação do resultado financeiro líquido.
-- **Mercado:** `/mercado` oferece negociações entre países e mercado global, com estoque reservado, compras parciais, preços limitados e histórico.
-- **Forças armadas:** `/militar consultar` apresenta prontidão, cobertura de equipamentos e manutenção anual. A manutenção de itens militares é calculada sobre os soldados/equipamentos atribuídos, e a prontidão evolui no fechamento anual conforme abastecimento e cobertura.
-- **Modernização militar:** `/militar modernizar` converte equipamento militar antigo em um modelo novo, consumindo o custo de produção e os materiais cadastrados na receita do novo item. O equipamento antigo precisa estar desatribuído.
-- **Comércio internacional:** `/comercio contrato-criar` abre uma proposta bilateral; o país comprador aceita com `/comercio contrato-aceitar`. Contratos transferem recursos e dinheiro automaticamente a cada ano, têm duração definida (0 = indefinida) e podem ficar suspensos por falta de estoque, saldo, embargo ou bloqueio. `/comercio tarifa` configura tarifa do importador. `/comercio restricao-impor` e `/comercio restricao-levantar` gerenciam embargos e bloqueios. `/comercio dependencia` mede a participação de cada fornecedor nos últimos cinco anos de contratos e compras diretas entre países; participação igual ou superior a 50% é sinalizada como dependência alta. Tarifas são cobradas adicionalmente do importador e não são repassadas ao exportador; elas também incidem nas compras de ofertas entre países. Embargos e bloqueios impedem contratos, compras de ofertas e transferências anuais de recursos entre os países envolvidos.
-- **População:** `/populacao` configura crescimento, necessidade alimentar, déficit e contador de revolta; o bot não decide consequências políticas.
-- **Turnos e auditoria:** `/ano avancar` e `/ano desfazer` processam/revertem o exercício com transações atômicas e histórico. `/indicador` e `/historico` mantêm indicadores e auditoria.
-- **Ajuda:** use `/ajuda` dentro do servidor para o resumo dos comandos.
-
-O Gateway usa somente `DISCORD_BOT_TOKEN`; a conexão Discord OAuth do projeto não substitui o token do usuário de bot.

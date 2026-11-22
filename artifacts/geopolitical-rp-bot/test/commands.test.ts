@@ -3,70 +3,31 @@ import test from "node:test";
 import { commandBuilders } from "../src/commands/definitions.js";
 
 type CommandOption = { name: string; required?: boolean; options?: CommandOption[] };
-
-function commandOptions(value: unknown): CommandOption[] {
+function options(value: unknown): CommandOption[] {
   if (!Array.isArray(value)) return [];
-  return value.filter(
-    (option): option is CommandOption =>
-      typeof option === "object" && option !== null && "name" in option && typeof option.name === "string",
-  );
+  return value.filter((entry): entry is CommandOption =>
+    typeof entry === "object" && entry !== null && "name" in entry && typeof entry.name === "string");
 }
 
-test("all requested slash-command categories are registered with unique valid names", () => {
-  const names = commandBuilders.map((command) => command.name);
-  const expected = [
-    "configurar",
-    "pais",
-    "jogador",
-    "indicador",
-    "configuracoes",
-    "economia",
-    "transferir",
-    "inventario",
-    "produzir",
-    "mercado",
-    "populacao",
-    "negociacao",
-    "consumo",
-    "exercito",
-    "ano",
-    "historico",
-    "narrador",
-    "saldo",
-    "gastar",
-    "dinheiro",
-    "rendimento",
-    "ranking",
-    "ajuda",
-    "ping",
-    "militar",
-    "comercio",
-    "dados",
-  ];
-  assert.deepEqual(names, expected);
+test("only the four core systems are exposed as slash commands", () => {
+  const names = commandBuilders.map(command => command.name);
+  assert.deepEqual(names, ["configurar","narrador","pais","jogador","inventario","economia","renda","saldo","ajuda","ping"]);
   assert.equal(new Set(names).size, names.length);
   for (const name of names) assert.match(name, /^[a-z0-9-]{1,32}$/);
+  const forbidden = ["mercado","comercio","produzir","populacao","exercito","militar","ano","dados","negociacao","transferir","ranking","indicador"];
+  for (const name of forbidden) assert.ok(!names.includes(name), `Comando legado ainda exposto: ${name}`);
+});
 
-  const personalSettings = commandBuilders.find((command) => command.name === "configuracoes");
-  const personalSubcommands = commandOptions(personalSettings?.options);
-  assert.deepEqual(personalSubcommands.map((option) => option.name), ["pessoais"]);
-  const personalOptions = commandOptions(personalSubcommands[0]?.options);
-  assert.deepEqual(personalOptions.map((option) => option.name), ["pais", "inflacao_automatica"]);
-  assert.ok(personalOptions.every((option) => option.required === false));
-  const economyCommand = commandBuilders.find((command) => command.name === "economia");
-  assert.ok(!commandOptions(economyCommand?.options).some((option) => option.name === "inflacao-automatica"));
+test("inventory and income commands expose only basic operations", () => {
+  const inventory = commandBuilders.find(command => command.name === "inventario");
+  assert.deepEqual(options(inventory?.options).map(option => option.name), ["painel","criar-item","ajustar","producao"]);
+  const income = commandBuilders.find(command => command.name === "renda");
+  assert.deepEqual(options(income?.options).map(option => option.name), ["adicionar"]);
+  const economy = commandBuilders.find(command => command.name === "economia");
+  assert.deepEqual(options(economy?.options).map(option => option.name), ["configurar"]);
+});
 
-  const dataCommand = commandBuilders.find((command) => command.name === "dados");
-  assert.deepEqual(commandOptions(dataCommand?.options).map((option) => option.name), ["zerar-pais", "zerar-servidor"]);
-
-  const countryCommand = commandBuilders.find((command) => command.name === "pais");
-  const countrySubcommands = countryCommand?.options?.map((option) => option.name);
-  assert.ok(countrySubcommands?.includes("editar"));
-
-  const inventoryCommand = commandBuilders.find((command) => command.name === "inventario");
-  const inventorySubcommands = inventoryCommand?.options?.map((option) => option.name);
-  assert.ok(inventorySubcommands?.includes("categoria"));
-  assert.ok(inventorySubcommands?.includes("painel"));
-  assert.ok(!names.includes("permissao"));
-  assert.ok(names.includes("ranking"));
+test("narrator management remains restricted to explicit add and remove commands", () => {
+  const narrator = commandBuilders.find(command => command.name === "narrador");
+  assert.deepEqual(options(narrator?.options).map(option => option.name), ["adicionar","remover"]);
 });
