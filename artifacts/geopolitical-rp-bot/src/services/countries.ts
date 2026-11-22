@@ -108,15 +108,27 @@ export function deleteCountry(db: Database.Database, guildId: string, actorId: s
     ).get(countryId, guildId) as { id: number; name: string } | undefined;
     assertDomain(country, "País não encontrado.");
 
-    // Remove records without ON DELETE CASCADE before deleting the country.
+    // Remove dependent records in child-before-parent order. Audit history is intentionally retained.
     db.prepare("DELETE FROM international_trade_history WHERE seller_country_id = ? OR buyer_country_id = ?").run(countryId, countryId);
     db.prepare("DELETE FROM player_market_trades WHERE seller_country_id = ? OR buyer_country_id = ?").run(countryId, countryId);
     db.prepare("DELETE FROM global_market_trades WHERE country_id = ?").run(countryId);
     db.prepare("DELETE FROM financial_ledger WHERE country_id = ?").run(countryId);
-    db.prepare("DELETE FROM trade_contracts WHERE seller_country_id = ? OR buyer_country_id = ?").run(countryId, countryId);
     db.prepare("DELETE FROM trade_restrictions WHERE imposing_country_id = ? OR target_country_id = ?").run(countryId, countryId);
     db.prepare("DELETE FROM scheduled_transfers WHERE from_country_id = ? OR to_country_id = ?").run(countryId, countryId);
     db.prepare("DELETE FROM player_offers WHERE seller_country_id = ?").run(countryId);
+    db.prepare("DELETE FROM trade_contracts WHERE seller_country_id = ? OR buyer_country_id = ?").run(countryId, countryId);
+    db.prepare("DELETE FROM annual_runs WHERE guild_id = ?").run(guildId);
+    db.prepare("DELETE FROM operation_receipts WHERE guild_id = ?").run(guildId);
+    db.prepare("DELETE FROM economy_entries WHERE country_id = ?").run(countryId);
+    db.prepare("DELETE FROM production_order_materials WHERE order_id IN (SELECT id FROM production_orders WHERE country_id = ?)").run(countryId);
+    db.prepare("DELETE FROM production_orders WHERE country_id = ?").run(countryId);
+    db.prepare("DELETE FROM country_indicators WHERE country_id = ?").run(countryId);
+    db.prepare("DELETE FROM country_inventory WHERE country_id = ?").run(countryId);
+    db.prepare("DELETE FROM country_production WHERE country_id = ?").run(countryId);
+    db.prepare("DELETE FROM country_consumption_rules WHERE country_id = ?").run(countryId);
+    db.prepare("DELETE FROM army_equipment_assignments WHERE country_id = ?").run(countryId);
+    db.prepare("DELETE FROM country_trade_settings WHERE country_id = ?").run(countryId);
+    db.prepare("DELETE FROM country_memberships WHERE country_id = ?").run(countryId);
 
     const result = db.prepare("DELETE FROM countries WHERE id = ? AND guild_id = ?").run(countryId, guildId);
     assertDomain(result.changes === 1, "Não foi possível excluir o país.");
