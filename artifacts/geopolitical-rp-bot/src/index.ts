@@ -7,7 +7,7 @@ import {
 } from "discord.js";
 import { openDatabase, inTransaction } from "./db/index.js";
 import { commandBuilders } from "./commands/definitions.js";
-import { handleCommand } from "./commands/handlers.js";
+import { handleAutocomplete, handleCommand } from "./commands/handlers.js";
 import { ensureGuildSettings } from "./services/audit.js";
 import { syncRoleMemberships } from "./services/permissions.js";
 
@@ -29,6 +29,15 @@ client.once(Events.ClientReady, async (readyClient) => {
 });
 
 client.on(Events.InteractionCreate, async (interaction) => {
+  if (interaction.isAutocomplete()) {
+    try {
+      await handleAutocomplete(interaction, db);
+    } catch (error) {
+      console.error("Falha no autocomplete", { command: interaction.commandName, message: error instanceof Error ? error.message : String(error) });
+      await interaction.respond([]).catch(() => undefined);
+    }
+    return;
+  }
   if (!interaction.isChatInputCommand()) return;
   const commandInteraction: ChatInputCommandInteraction = interaction;
   try {
