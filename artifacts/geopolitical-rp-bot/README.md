@@ -33,7 +33,7 @@ Narradores possuem acesso administrativo completo. Jogadores acessam apenas as n
 ### Nações
 - `/pais criar`: cria uma nação e vincula um cargo.
 - `/pais listar`: lista as nações acessíveis; narradores podem listar todas.
-- `/pais ver`: consulta tesouro, renda anual e limite de dívida.
+- `/pais ver`: consulta tesouro, renda anual, gastos anuais e limite de dívida.\n- `/pais deletar`: apaga imediatamente a nação e todos os registros vinculados; a trilha de auditoria é preservada.
 - `/jogador associar` e `/jogador remover`: gerenciam associações.
 - `/jogador meus-paises`: lista as nações do jogador.
 
